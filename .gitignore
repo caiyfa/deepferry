@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+uv.lock
+
+# Tauri / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/src-tauri/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# PyInstaller
+*.spec
+
+# SQLite (runtime databases)
+*.db
+*.db-journal
+*.db-wal
+
+# Tauri build artifacts
+frontend/src-tauri/target/
