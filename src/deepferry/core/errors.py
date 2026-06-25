@@ -26,12 +26,14 @@ class DeepFerryError(Exception):
         code: str | None = None,
         message: str | None = None,
         suggestion: str | None = None,
-        status_code: int = 500,
+        status_code: int | None = None,
     ) -> None:
         self.code = code or self.__class__.code
         self.message = message or "An unexpected error occurred."
         self.suggestion = suggestion
-        self.status_code = status_code
+        self.status_code = (
+            status_code if status_code is not None else self.__class__.status_code
+        )
         super().__init__(self.message)
 
     def to_dict(self) -> dict[str, str | None]:
