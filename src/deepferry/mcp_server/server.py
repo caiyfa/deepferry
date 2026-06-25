@@ -329,10 +329,15 @@ async def run_http_server(
     async def health(request: starlette.requests.Request) -> starlette.responses.JSONResponse:  # noqa: ARG001
         return starlette.responses.JSONResponse({"status": "ok"})
 
+    from deepferry.web.app import init_app
+
+    config_app = init_app(registry)
+
     starlette_app = starlette.applications.Starlette(
         lifespan=lifespan,  # type: ignore[arg-type]
         routes=[
             starlette.routing.Route("/health", health, methods=["GET"]),
+            starlette.routing.Mount("/api", app=config_app),
             starlette.routing.Mount("/", app=session_manager.handle_request),
         ],
     )

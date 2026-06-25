@@ -9,19 +9,15 @@ uvicorn.  All routes are async and use FastAPI's dependency injection for the
 registry.
 """
 
-from __future__ import annotations
-
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 
 from deepferry.core.errors import SourceNotFoundError
+from deepferry.core.models import SourceSummary
 from deepferry.datasources.registry import SourceRegistry
-
-if TYPE_CHECKING:
-    from deepferry.core.models import SourceSummary
 
 _registry: SourceRegistry | None = None
 """Module-level registry reference, set by ``init_app()`` at startup."""
@@ -70,7 +66,7 @@ async def health() -> dict[str, str]:
 # ── Source discovery ────────────────────────────────────────────────────────
 
 
-@app.get("/api/config/sources")
+@app.get("/config/sources")
 async def list_sources(
     registry: SourceRegistry = Depends(get_registry),
 ) -> list[SourceSummary]:
@@ -85,7 +81,7 @@ async def list_sources(
 # ── Source testing ──────────────────────────────────────────────────────────
 
 
-@app.post("/api/config/sources/{source_id}/test")
+@app.post("/config/sources/{source_id}/test")
 async def test_source(
     source_id: str,
     registry: SourceRegistry = Depends(get_registry),
