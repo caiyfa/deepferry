@@ -81,6 +81,14 @@ class TokenManager:
         await self._db.execute("DELETE FROM token_cache WHERE source_id = ?", (source_id,))
         await self._db.commit()
 
+    def acquire_lock(self, source_id: str) -> asyncio.Lock:
+        """Return the per-source ``asyncio.Lock``.
+
+        Used by ``HTTPDataSource`` for auth retry coordination so that
+        multiple concurrent 401s trigger exactly one re-login.
+        """
+        return self._get_lock(source_id)
+
     @staticmethod
     def apply_token(headers: dict[str, str], token: str, token_type: str) -> dict[str, str]:
         """Inject *token* into the request *headers* dict in-place and return it.

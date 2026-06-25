@@ -16,6 +16,8 @@ from urllib.parse import urlencode
 
 import httpx2
 
+from deepferry.auth.models import AuthConfig
+from deepferry.auth.token_manager import TokenManager
 from deepferry.core.errors import DataSourceError
 from deepferry.core.models import (
     ColumnMeta,
@@ -248,11 +250,19 @@ class HTTPDataSource(DataSource):
     """
 
     source_type: ClassVar[str] = "http"
+    HTTP_AUTH_RETRY_STATUSES: ClassVar[set[int]] = {401}
+    """HTTP status codes that trigger a token invalidation + retry.
+    Configurable per-source via ``extra.http_auth_retry_statuses``."""
 
-    def __init__(self, config: SourceConfig) -> None:
+    def __init__(
+        self,
+        config: SourceConfig,
+        token_manager: TokenManager | None = None,
+    ) -> None:
         super().__init__()
         self._config = config
         self._client: httpx2.AsyncClient | None = None
+        self._token_manager = token_manager
 
     # ── Lifecycle ──────────────────────────────────────────────────────
 
@@ -334,14 +344,29 @@ class HTTPDataSource(DataSource):
                 suggestion="Use GET, POST, PUT, or PATCH.",
             )
 
+        auth_config: AuthConfig | None = None
+        if self._token_manager is not None:
+            auth_raw = self._config.extra.get("auth")
+            if isinstance(auth_raw, dict):
+                auth_config = AuthConfig(**auth_raw)
+
         try:
-            response = await self._client.request(  # type: ignore[union-attr]
-                method=method,
-                url=url,
-                json=body,
-                timeout=query.timeout,
-                follow_redirects=True,
-            )
+            if auth_config is not None:
+                response = await self._request_with_auth_retry(
+                    method=method,
+                    url=url,
+                    json_body=body,
+                    auth_config=auth_config,
+                    timeout=float(query.timeout),
+                )
+            else:
+                response = await self._client.request(  # type: ignore[union-attr]
+                    method=method,
+                    url=url,
+                    json=body,
+                    timeout=query.timeout,
+                    follow_redirects=True,
+                )
 
             # Check content-length before reading the body.
             content_length = response.headers.get("content-length")
@@ -410,6 +435,83 @@ class HTTPDataSource(DataSource):
             row_count=len(rows),
             execution_time_ms=round(elapsed, 3),
         )
+
+    # ── Auth retry support ──────────────────────────────────────────────
+
+    async def _request_with_auth_retry(
+        self,
+        method: str,
+        url: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        auth_config: AuthConfig,
+        timeout: float = 30.0,
+    ) -> httpx2.Response:
+        """Perform an HTTP request with automatic 401 retry via TokenManager.
+
+        On first 401: invalidates the cached token, acquires the per-source
+        lock, triggers a re-login via ``get_token()``, rebuilds auth headers,
+        and retries **once**.  A second 401 raises ``AUTH_FAILED``.
+        """
+        assert self._token_manager is not None
+        assert self._client is not None
+
+        retry_statuses = self._config.extra.get(
+            "http_auth_retry_statuses", self.HTTP_AUTH_RETRY_STATUSES
+        )
+
+        # ── First attempt ───────────────────────────────────────────────
+        token = await self._token_manager.get_token(self.source_id, auth_config)
+        req_headers = self._build_auth_headers(token, auth_config.token_type)
+
+        response = await self._client.request(
+            method=method,
+            url=url,
+            json=json_body,
+            headers=req_headers,
+            timeout=timeout,
+            follow_redirects=True,
+        )
+
+        if response.status_code not in retry_statuses:
+            return response
+
+        # ── 401 / retry path ────────────────────────────────────────────
+        await self._token_manager.invalidate(self.source_id)
+
+        # get_token() handles its own per-source asyncio.Lock internally;
+        # after invalidation the double-check inside the lock will find no
+        # cached token and trigger a fresh login.
+        token = await self._token_manager.get_token(self.source_id, auth_config)
+        req_headers = self._build_auth_headers(token, auth_config.token_type)
+
+        response = await self._client.request(
+            method=method,
+            url=url,
+            json=json_body,
+            headers=req_headers,
+            timeout=timeout,
+            follow_redirects=True,
+        )
+
+        if response.status_code in retry_statuses:
+            raise DataSourceError(
+                code="AUTH_FAILED",
+                message=(
+                    f"Authentication failed for source {self.source_id!r} after retry. "
+                    f"Server returned {response.status_code}."
+                ),
+                suggestion="Check credentials and auth configuration.",
+            )
+
+        return response
+
+    @staticmethod
+    def _build_auth_headers(token: str, token_type: str) -> dict[str, str]:
+        """Build auth-specific request headers with token injected."""
+        headers: dict[str, str] = {}
+        TokenManager.apply_token(headers, token, token_type)
+        return headers
 
     # ── Resource discovery ─────────────────────────────────────────────
 

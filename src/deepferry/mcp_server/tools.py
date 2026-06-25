@@ -11,6 +11,7 @@ DeepFerryError subclasses are re-raised as-is; the call_tool handler in
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from deepferry.core.errors import DataSourceError, DeepFerryError
@@ -143,3 +144,38 @@ async def execute_query(
             code="QUERY_FAILED",
             message=f"Query failed on source {source_id!r}: {exc}",
         ) from exc
+
+
+async def start_scenario(label: str | None = None) -> dict[str, Any]:
+    """Open a named investigation scenario. Returns scenario_id.
+
+    Parameters
+    ----------
+    label : str | None
+        Optional human-readable label for the scenario.
+
+    Returns
+    -------
+    dict
+        ``{"scenario_id": str, "label": str | None}``
+    """
+    scenario_id = str(uuid.uuid4())
+    return {"scenario_id": scenario_id, "label": label}
+
+
+async def end_scenario(scenario_id: str) -> dict[str, Any]:
+    """Close a scenario. Returns summary.
+
+    Future: mark scenario as read-only in trace store.
+
+    Parameters
+    ----------
+    scenario_id : str
+        The scenario UUID to close.
+
+    Returns
+    -------
+    dict
+        ``{"scenario_id": str, "status": str}``
+    """
+    return {"scenario_id": scenario_id, "status": "closed"}

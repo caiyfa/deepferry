@@ -24,7 +24,14 @@ from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 from deepferry.core.errors import DeepFerryError
-from deepferry.mcp_server.tools import execute_query, list_sources, list_tables, schema_info
+from deepferry.mcp_server.tools import (
+    end_scenario,
+    execute_query,
+    list_sources,
+    list_tables,
+    schema_info,
+    start_scenario,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -89,6 +96,27 @@ _QUERY_SCHEMA: dict[str, object] = {
     },
 }
 
+_START_SCENARIO_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "label": {
+            "type": "string",
+            "description": "Optional human-readable label for the scenario",
+        },
+    },
+}
+
+_END_SCENARIO_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["scenario_id"],
+    "properties": {
+        "scenario_id": {
+            "type": "string",
+            "description": "The scenario UUID to close",
+        },
+    },
+}
+
 ALL_TOOLS: list[types.Tool] = [
     types.Tool(
         name="list_sources",
@@ -110,6 +138,16 @@ ALL_TOOLS: list[types.Tool] = [
         description="Execute a SQL query against a data source and return structured results.",
         inputSchema=_QUERY_SCHEMA,
     ),
+    types.Tool(
+        name="start_scenario",
+        description="Open a named investigation scenario. Returns a scenario_id for grouping subsequent queries.",
+        inputSchema=_START_SCENARIO_SCHEMA,
+    ),
+    types.Tool(
+        name="end_scenario",
+        description="Close a scenario. The scenario becomes read-only in the trace store.",
+        inputSchema=_END_SCENARIO_SCHEMA,
+    ),
 ]
 
 # ── Server factory ─────────────────────────────────────────────────────────
@@ -118,10 +156,10 @@ ALL_TOOLS: list[types.Tool] = [
 def create_server(registry: SourceRegistry) -> Server[Any, Any]:
     """Build and return a configured ``mcp.server.Server`` instance.
 
-    Registers the four deepferry tools (list_sources, list_tables,
-    schema_info, query) with their input schemas and async handlers.
-    All errors returned to agents are structured JSON — no Python tracebacks
-    leak through the tool boundary.
+    Registers the six deepferry tools (list_sources, list_tables,
+    schema_info, query, start_scenario, end_scenario) with their input
+    schemas and async handlers.  All errors returned to agents are
+    structured JSON — no Python tracebacks leak through the tool boundary.
     """
 
     app: Server[Any, Any] = Server("deepferry")
@@ -158,6 +196,15 @@ def create_server(registry: SourceRegistry) -> Server[Any, Any]:
                 )
                 return [types.TextContent(type="text", text=result.model_dump_json())]
 
+            if name == "start_scenario":
+                label: str | None = arguments.get("label")
+                scenario_result = await start_scenario(label)
+                return [types.TextContent(type="text", text=json.dumps(scenario_result))]
+
+            if name == "end_scenario":
+                end_result = await end_scenario(arguments["scenario_id"])
+                return [types.TextContent(type="text", text=json.dumps(end_result))]
+
             return [
                 types.TextContent(
                     type="text",
@@ -165,7 +212,8 @@ def create_server(registry: SourceRegistry) -> Server[Any, Any]:
                         "code": "UNKNOWN_TOOL",
                         "message": f"No handler registered for tool {name!r}",
                         "suggestion": (
-                            "Available tools: list_sources, list_tables, schema_info, query"
+                            "Available tools: list_sources, list_tables, "
+                            "schema_info, query, start_scenario, end_scenario"
                         ),
                     }),
                 )

@@ -50,10 +50,23 @@ class PostgreSQLDataSource(DataSource):
 
     source_type: ClassVar[str] = "postgresql"
 
+    _READ_ONLY_PREFIXES: ClassVar[tuple[str, ...]] = (
+        "SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "WITH",
+    )
+
     def __init__(self, config: SourceConfig) -> None:
         super().__init__()
         self._config = config
         self._pool: asyncpg.Pool[asyncpg.Record] | None = None
+
+    @staticmethod
+    def _is_read_only(statement: str) -> bool:
+        """Check if a SQL statement is a read-only operation."""
+        stripped = statement.strip().upper()
+        return any(
+            stripped.startswith(prefix)
+            for prefix in PostgreSQLDataSource._READ_ONLY_PREFIXES
+        )
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -110,6 +123,13 @@ class PostgreSQLDataSource(DataSource):
                 code="NOT_CONNECTED",
                 message="PostgreSQL datasource is not connected.",
                 suggestion="Call connect() before executing queries.",
+            )
+
+        if not self._is_read_only(query.statement):
+            raise DataSourceError(
+                code="WRITE_NOT_ALLOWED",
+                message="Write operations are not permitted through deepferry.",
+                suggestion="Use a direct database connection for INSERT/UPDATE/DELETE.",
             )
 
         params_list: list[Any] = []

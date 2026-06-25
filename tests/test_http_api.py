@@ -7,13 +7,17 @@ production safeguards.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import aiosqlite
 import httpx2
 import pytest
 
+from deepferry.auth.token_manager import TokenManager
 from deepferry.config import SourceConfig
 from deepferry.core.errors import DataSourceError
 from deepferry.core.models import QueryRequest
@@ -509,3 +513,166 @@ class TestHealthCheck:
         status = await source.health_check()
         assert status.ok is False
         assert status.error is not None
+
+
+_AUTH_EXTRA: dict[str, Any] = {
+    "login_url": "https://api.example.com/auth/login",
+    "login_method": "POST",
+    "login_body": {"username": "u", "password": "p"},
+    "token_field": "access_token",
+    "token_type": "bearer",
+}
+
+
+async def _make_auth_db() -> aiosqlite.Connection:
+    db = await aiosqlite.connect(":memory:")
+    db.row_factory = aiosqlite.Row
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS token_cache (
+            source_id      TEXT PRIMARY KEY,
+            access_token   TEXT NOT NULL,
+            refresh_token  TEXT,
+            token_type     TEXT NOT NULL DEFAULT 'bearer',
+            expires_at     REAL NOT NULL,
+            extra          TEXT,
+            created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    await db.commit()
+    return db
+
+
+def _mock_login_response(access_token: str = "fresh-token") -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {"access_token": access_token, "expires_in": 3600}
+    resp.raise_for_status.return_value = None
+    return resp
+
+
+class TestAuthRetry:
+    @pytest.mark.asyncio
+    async def test_auth_retry_on_401(self):
+        """First request 401 → invalidate → re-login → retry succeeds (200)."""
+        db = await _make_auth_db()
+        future = time.time() + 3600
+        await db.execute(
+            "INSERT INTO token_cache (source_id, access_token, token_type, expires_at) "
+            "VALUES (?, ?, 'bearer', ?)",
+            ("test-http-auth", "initial-token", future),
+        )
+        await db.commit()
+
+        auth_http = AsyncMock(spec=httpx2.AsyncClient)
+        auth_http.request.return_value = _mock_login_response("fresh-token")
+
+        tm = TokenManager(db=db, http_client=auth_http)
+
+        cfg = _make_config_extra(id="test-http-auth", auth=_AUTH_EXTRA)
+        source = HTTPDataSource(cfg, token_manager=tm)
+        source.source_id = "test-http-auth"
+
+        data_client = _mock_client()
+        data_client.request.side_effect = [
+            _resp(status=401),
+            _resp(body={"data": [{"id": 1, "name": "Alice"}]}),
+        ]
+        _set_client(source, data_client)
+
+        result = await source.execute(
+            QueryRequest(source_id="test-http-auth", statement="users"),
+        )
+        assert result.row_count == 1
+        assert result.rows[0]["id"] == 1
+        assert data_client.request.call_count == 2
+        assert auth_http.request.call_count >= 1
+
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_auth_retry_fails_on_double_401(self):
+        """Both original and retry return 401 → AUTH_FAILED."""
+        db = await _make_auth_db()
+        future = time.time() + 3600
+        await db.execute(
+            "INSERT INTO token_cache (source_id, access_token, token_type, expires_at) "
+            "VALUES (?, ?, 'bearer', ?)",
+            ("test-http-auth", "initial-token", future),
+        )
+        await db.commit()
+
+        auth_http = AsyncMock(spec=httpx2.AsyncClient)
+        auth_http.request.return_value = _mock_login_response("fresh-token")
+
+        tm = TokenManager(db=db, http_client=auth_http)
+
+        cfg = _make_config_extra(id="test-http-auth", auth=_AUTH_EXTRA)
+        source = HTTPDataSource(cfg, token_manager=tm)
+        source.source_id = "test-http-auth"
+
+        data_client = _mock_client()
+        data_client.request.side_effect = [
+            _resp(status=401),
+            _resp(status=401),
+        ]
+        _set_client(source, data_client)
+
+        with pytest.raises(DataSourceError) as exc_info:
+            await source.execute(
+                QueryRequest(source_id="test-http-auth", statement="users"),
+            )
+        assert exc_info.value.code == "AUTH_FAILED"
+        assert data_client.request.call_count == 2
+
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_auth_retry_preserves_concurrent_safety(self):
+        """5 concurrent 401s → login called exactly once, all retries succeed."""
+        db = await _make_auth_db()
+        future = time.time() + 3600
+        await db.execute(
+            "INSERT INTO token_cache (source_id, access_token, token_type, expires_at) "
+            "VALUES (?, ?, 'bearer', ?)",
+            ("test-http-auth", "initial-token", future),
+        )
+        await db.commit()
+
+        login_count = 0
+
+        async def counted_login(*args: Any, **kwargs: Any) -> MagicMock:
+            nonlocal login_count
+            login_count += 1
+            await asyncio.sleep(0.03)
+            return _mock_login_response(f"token-{login_count}")
+
+        auth_http = AsyncMock(spec=httpx2.AsyncClient)
+        auth_http.request.side_effect = counted_login
+
+        tm = TokenManager(db=db, http_client=auth_http)
+
+        cfg = _make_config_extra(id="test-http-auth", auth=_AUTH_EXTRA)
+
+        async def run_one() -> None:
+            source = HTTPDataSource(cfg, token_manager=tm)
+            source.source_id = "test-http-auth"
+
+            data_client = _mock_client()
+            data_client.request.side_effect = [
+                _resp(status=401),
+                _resp(body={"data": [{"id": 1}]}),
+            ]
+            _set_client(source, data_client)
+
+            await source.execute(
+                QueryRequest(source_id="test-http-auth", statement="users"),
+            )
+
+        await asyncio.gather(*(run_one() for _ in range(5)))
+
+        assert login_count == 1, f"Expected 1 login, got {login_count}"
+
+        await db.close()

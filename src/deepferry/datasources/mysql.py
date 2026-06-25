@@ -94,10 +94,22 @@ class MySQLDataSource(DataSource):
 
     source_type: ClassVar[str] = "mysql"
 
+    _READ_ONLY_PREFIXES: ClassVar[tuple[str, ...]] = (
+        "SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "WITH",
+    )
+
     def __init__(self, config: SourceConfig) -> None:
         super().__init__()
         self._config = config
         self._pool: asyncmy.Pool | None = None
+
+    @staticmethod
+    def _is_read_only(statement: str) -> bool:
+        """Check if a SQL statement is a read-only operation."""
+        stripped = statement.strip().upper()
+        return any(
+            stripped.startswith(prefix) for prefix in MySQLDataSource._READ_ONLY_PREFIXES
+        )
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
@@ -165,6 +177,13 @@ class MySQLDataSource(DataSource):
             With code ``CONNECTION_FAILED``, ``QUERY_FAILED``, or ``TIMEOUT``.
         """
         self._require_connected()
+
+        if not self._is_read_only(query.statement):
+            raise DataSourceError(
+                code="WRITE_NOT_ALLOWED",
+                message="Write operations are not permitted through deepferry.",
+                suggestion="Use a direct database connection for INSERT/UPDATE/DELETE.",
+            )
 
         params_dict: dict[str, Any] | None = query.params
         params_args: tuple[Any, ...] | None = (

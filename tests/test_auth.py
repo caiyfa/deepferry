@@ -366,3 +366,40 @@ async def test_uses_expires_in_from_response(
 async def test_invalidate_idempotent(manager: TokenManager) -> None:
     """invalidate() on a non-existent source_id does not raise."""
     await manager.invalidate("non-existent-source")
+
+
+@pytest.mark.asyncio
+async def test_concurrent_invalidate_and_get_token(
+    manager: TokenManager, mock_http: AsyncMock
+) -> None:
+    """5 concurrent get_token calls after invalidation → login called exactly once."""
+    config = _make_config()
+
+    future_time = time.time() + 3600
+    await manager._db.execute(
+        "INSERT INTO token_cache (source_id, access_token, token_type, expires_at) "
+        "VALUES (?, ?, 'bearer', ?)",
+        (_SOURCE_ID, "will-be-invalidated", future_time),
+    )
+    await manager._db.commit()
+
+    call_count = 0
+
+    async def counted_login(*args: Any, **kwargs: Any) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        await asyncio.sleep(0.03)
+        return _mock_response({"access_token": f"fresh-{call_count}", "expires_in": 3600})
+
+    mock_http.request.side_effect = counted_login
+
+    lock = manager.acquire_lock(_SOURCE_ID)
+
+    async with lock:
+        await manager.invalidate(_SOURCE_ID)
+        tasks = [manager.get_token(_SOURCE_ID, config) for _ in range(5)]
+        await asyncio.sleep(0.02)
+
+    results = await asyncio.gather(*tasks)
+    assert results == ["fresh-1"] * 5
+    assert call_count == 1, f"Expected 1 login, got {call_count}"
