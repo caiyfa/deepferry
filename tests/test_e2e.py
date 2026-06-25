@@ -12,8 +12,9 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.toml")
 @pytest.fixture(scope="module")
 async def registry():
     from deepferry.config import load_config
-    from deepferry.datasources.registry import SourceRegistry
-    import deepferry.datasources.mysql  # noqa: F401
+    from deepferry.datasources.mysql import MySQLDataSource
+    from deepferry.datasources.registry import SourceRegistry, register_source_type
+    register_source_type("mysql", MySQLDataSource)
 
     config = load_config(CONFIG_PATH)
     reg = SourceRegistry()
