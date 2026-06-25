@@ -15,6 +15,7 @@ from deepferry.engine.duckdb import (
     _build_attach_string,
     _parse_source_refs,
     _to_duckdb_type,
+    _transform_sql,
 )
 
 
@@ -199,6 +200,10 @@ class TestTypeMapping:
 
     def test_unknown_type_falls_back_to_varchar(self):
         assert _to_duckdb_type("GEOMETRY") == "VARCHAR"
+
+    def test_number_maps_to_double(self):
+        assert _to_duckdb_type("NUMBER") == "DOUBLE"
+        assert _to_duckdb_type("number") == "DOUBLE"
 
 
 class TestHTTPMaterialization:
@@ -421,3 +426,59 @@ class TestCrossQueryTool:
                 engine=engine,
                 sql="SELECT 1",
             )
+
+
+class TestParseSourceRefsQuotedAndHyphen:
+    def test_quoted_sql_source_id(self, registry_with_sql):
+        sql = 'SELECT * FROM "mysql_src".customers'
+        refs = _parse_source_refs(sql, registry_with_sql)
+        assert refs["sql"] == {"mysql_src"}
+
+    def test_hyphenated_sql_source_id(self):
+        reg = SourceRegistry()
+        cfg = _make_sql_config("finance-db")
+        source = FakeMySQLSource(cfg)
+        source.source_id = "finance-db"
+        reg._instances["finance-db"] = source
+        sql = 'SELECT * FROM "finance-db".employee'
+        refs = _parse_source_refs(sql, reg)
+        assert refs["sql"] == {"finance-db"}
+
+    def test_hyphenated_http_source_id(self):
+        reg = SourceRegistry()
+        cfg = _make_http_config("orders-api")
+        source = FakeHTTPSource(cfg)
+        source.source_id = "orders-api"
+        reg._instances["orders-api"] = source
+        sql = 'SELECT * FROM "orders-api".orders'
+        refs = _parse_source_refs(sql, reg)
+        assert refs["http"] == {"orders-api": {"orders"}}
+
+
+class TestTransformSql:
+    def test_two_part_becomes_three_part(self, registry_with_sql):
+        sql = 'SELECT * FROM "mysql_src".customers'
+        refs = _parse_source_refs(sql, registry_with_sql)
+        result = _transform_sql(sql, refs, registry_with_sql)
+        assert '"mysql_src"."testdb".customers' in result
+
+    def test_hyphenated_source_rewrite(self):
+        reg = SourceRegistry()
+        cfg = _make_sql_config("finance-db")
+        source = FakeMySQLSource(cfg)
+        source.source_id = "finance-db"
+        reg._instances["finance-db"] = source
+        sql = (
+            'SELECT * FROM "finance-db".employee e '
+            'JOIN "finance-db".orders o ON o.id = e.id'
+        )
+        refs = _parse_source_refs(sql, reg)
+        result = _transform_sql(sql, refs, reg)
+        assert '"finance-db"."testdb".employee' in result
+        assert '"finance-db"."testdb".orders' in result
+
+    def test_http_sources_not_rewritten(self, registry_with_http):
+        sql = "SELECT * FROM http_src.orders"
+        refs = _parse_source_refs(sql, registry_with_http)
+        result = _transform_sql(sql, refs, registry_with_http)
+        assert result == sql

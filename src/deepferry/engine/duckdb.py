@@ -17,7 +17,9 @@ if TYPE_CHECKING:
 _SOURCE_REF_RE = re.compile(
     r"""
     (?<!['"\w])                    # Not inside a string or identifier
+    "?                             # optional opening quote around source_id
     (?P<source>[a-zA-Z_][a-zA-Z0-9_-]*)  # source_id
+    "?                             # optional closing quote
     \.                            # dot
     (?P<table>[a-zA-Z_][a-zA-Z0-9_]*)    # table_name
     """,
@@ -94,7 +96,7 @@ class DuckDBEngine:
         await self._attach_sql_sources(refs["sql"], registry)
         await self._materialize_http_sources(refs["http"], registry)
 
-        transformed = _transform_sql(query.statement, refs)
+        transformed = _transform_sql(query.statement, refs, registry)
 
         self._enforce_limit(transformed, query.max_rows)
 
@@ -141,30 +143,9 @@ class DuckDBEngine:
             if attach_str:
                 db_type = "mysql" if cfg.type == "mysql" else "postgres"
                 conn.execute(
-                    f"ATTACH '{attach_str}' AS {sid} (TYPE {db_type})"
+                    f"ATTACH '{attach_str}' AS {_quote_ident(sid)} (TYPE {db_type})"
                 )
                 self._attached.add(sid)
-                await self._create_source_views(sid, cfg)
-
-    async def _create_source_views(
-        self, source_id: str, config: SourceConfig
-    ) -> None:
-        conn = self._conn
-        assert conn is not None
-        self._create_schema(source_id)
-        db_name = config.database or "main"
-        try:
-            tables = conn.execute(
-                f"SELECT table_name FROM {source_id}.information_schema.tables "
-                f"WHERE table_schema = '{db_name}'"
-            ).fetchall()
-        except Exception:
-            return
-        for (table_name,) in tables:
-            conn.execute(
-                f"CREATE OR REPLACE VIEW {source_id}.{_quote_ident(table_name)} "
-                f"AS SELECT * FROM {source_id}.{_quote_ident(db_name)}.{_quote_ident(table_name)}"
-            )
 
     # ── HTTP source materialization ──────────────────────────────────────
 
@@ -191,13 +172,13 @@ class DuckDBEngine:
                     for c in result.columns
                 )
                 conn.execute(
-                    f"CREATE OR REPLACE TABLE {source_id}.{_quote_ident(table_name)} "
+                    f"CREATE OR REPLACE TABLE {_quote_ident(source_id)}.{_quote_ident(table_name)} "
                     f"({col_defs})"
                 )
                 if result.rows:
                     rows_values = _build_insert_values(result.columns, result.rows)
                     conn.execute(
-                        f"INSERT INTO {source_id}.{_quote_ident(table_name)} VALUES "
+                        f"INSERT INTO {_quote_ident(source_id)}.{_quote_ident(table_name)} VALUES "
                         + ", ".join(rows_values)
                     )
 
@@ -224,7 +205,7 @@ class DuckDBEngine:
         conn = self._conn
         assert conn is not None
         with contextlib.suppress(Exception):
-            conn.execute(f"CREATE SCHEMA {name}")
+            conn.execute(f"CREATE SCHEMA {_quote_ident(name)}")
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -252,7 +233,15 @@ def _parse_source_refs(
     return {"sql": sql_refs, "http": http_refs}
 
 
-def _transform_sql(sql: str, refs: dict[str, Any]) -> str:
+def _transform_sql(sql: str, refs: dict[str, Any], registry: SourceRegistry) -> str:
+    for sid in refs["sql"]:
+        source = registry.get(sid)
+        db_name = source._config.database or "main"  # type: ignore[attr-defined]
+        sql = re.sub(
+            rf'"?{re.escape(sid)}"?\.',
+            rf'"{sid}"."{db_name}".',
+            sql,
+        )
     return sql
 
 
@@ -296,6 +285,7 @@ def _to_duckdb_type(type_str: str) -> str:
         "VARCHAR": "VARCHAR",
         "TEXT": "VARCHAR",
         "CHAR": "VARCHAR",
+        "NUMBER": "DOUBLE",
         "BOOLEAN": "BOOLEAN",
         "BOOL": "BOOLEAN",
         "DATE": "DATE",
