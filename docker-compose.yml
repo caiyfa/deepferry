@@ -1,0 +1,49 @@
+services:
+  deepferry:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.toml:/home/deepferry/config.toml:ro
+      - deepferry_data:/home/deepferry/data
+    environment:
+      - MYSQL_HOST
+      - MYSQL_PORT
+      - MYSQL_USER
+      - MYSQL_PASSWORD
+      - MYSQL_DATABASE
+      - POSTGRES_HOST
+      - POSTGRES_PORT
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - POSTGRES_DATABASE
+    restart: unless-stopped
+
+  # Optional: include MySQL for development
+  mysql:
+    image: mysql:8
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-testpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-deepferry}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    profiles: [full]
+
+  # Optional: include PostgreSQL for development
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testpass}
+      POSTGRES_DB: ${POSTGRES_DATABASE:-deepferry}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    profiles: [full]
+
+volumes:
+  deepferry_data:
+  mysql_data:
+  postgres_data:

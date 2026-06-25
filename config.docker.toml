@@ -1,0 +1,39 @@
+# deepferry Docker 配置
+# 复制此文件为 config.toml 并根据实际环境修改
+
+[server]
+host = "0.0.0.0"
+port = 8000
+
+# ── MySQL ──────────────────────────────────────────────────────────────
+[[sources]]
+id = "mysql-main"
+type = "mysql"
+name = "MySQL Database"
+host = "${MYSQL_HOST:mysql}"
+port = 3306
+database = "${MYSQL_DATABASE:deepferry}"
+user = "${MYSQL_USER:root}"
+password = "${MYSQL_PASSWORD:testpass}"
+
+# ── PostgreSQL ─────────────────────────────────────────────────────────
+[[sources]]
+id = "pg-main"
+type = "postgresql"
+name = "PostgreSQL Database"
+host = "${POSTGRES_HOST:postgres}"
+port = 5432
+database = "${POSTGRES_DATABASE:deepferry}"
+user = "${POSTGRES_USER:postgres}"
+password = "${POSTGRES_PASSWORD:testpass}"
+
+# ── HTTP API 数据源示例 ────────────────────────────────────────────────
+# [[sources]]
+# id = "json-api"
+# type = "http"
+# base_url = "https://api.example.com/v1"
+#
+# [[sources.resources]]
+# name = "users"
+# path = "/users"
+# method = "GET"

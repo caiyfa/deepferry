@@ -1,0 +1,17 @@
+.git
+.sisyphus
+.venv
+__pycache__
+*.pyc
+*.db
+*.db-journal
+*.db-wal
+tests
+openspec
+design
+frontend
+README.md
+AGENTS.md
+.env
+.env.local
+config.toml
