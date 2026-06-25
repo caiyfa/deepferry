@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>deepferry · 编排引擎 & 跨源聚合 & 自定义数据源 · 能力场景设计</title>
+<style>
+  :root{
+    --ink:#1f2937; --ink-soft:#4b5563; --mute:#6b7280; --line:#d1d5db;
+    --bg:#f8fafc; --panel:#ffffff; --tint:#eef2ff; --tint2:#f5f3ff;
+    --brand:#2563eb; --brand-d:#1d4ed8; --accent:#7c3aed; --custom:#7c3aed;
+    --orch:#6366f1; --duck:#16a34a; --sql:#0d9488; --http:#c2410c;
+    --auth:#d97706; --ok:#16a34a; --warn:#d97706; --err:#dc2626; --amber:#f59e0b;
+    --code-bg:#0f172a; --code-fg:#cbd5e1;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg);line-height:1.6;font-size:14px}
+  header.nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  .nav-inner{max-width:1280px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .brand-dot{width:10px;height:10px;border-radius:3px;background:linear-gradient(135deg,var(--orch),var(--duck))}
+  .nav h1{font-size:15px;margin:0;font-weight:700}
+  .nav h1 small{color:var(--mute);font-weight:500;margin-left:8px}
+  .nav-links{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
+  .nav-links a{text-decoration:none;color:var(--ink-soft);font-size:13px;padding:6px 11px;border-radius:7px;border:1px solid transparent;transition:.15s}
+  .nav-links a:hover{background:var(--tint);color:var(--brand-d);border-color:#c7d2fe}
+
+  main{max-width:1280px;margin:0 auto;padding:32px 24px 120px}
+  section{margin-bottom:64px;scroll-margin-top:80px}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;border-bottom:2px solid #e5e7eb;padding-bottom:10px}
+  .sec-num{font-family:ui-monospace,monospace;font-size:12px;color:#fff;background:linear-gradient(135deg,var(--orch),var(--duck));padding:3px 10px;border-radius:6px;font-weight:700}
+  .sec-head h2{font-size:22px;margin:0}
+  .sec-head p{margin:0;color:var(--mute);font-size:13px;margin-left:auto}
+  .lead{color:var(--ink-soft);max-width:900px;margin:8px 0 22px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;box-shadow:0 1px 2px rgba(0,0,0,.03);margin-bottom:18px}
+  .card h3{margin:0 0 6px;font-size:17px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .cap-tag{font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;color:#fff}
+  .cap-tag.orch{background:var(--orch)} .cap-tag.duck{background:var(--duck)}
+  .card .desc{color:var(--mute);font-size:13px;margin:0 0 16px}
+  .num-badge{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--tint);color:var(--brand-d);font-weight:700;font-size:13px;font-family:ui-monospace,monospace}
+  .num-badge.o{background:#eef2ff;color:var(--orch)} .num-badge.d{background:#dcfce7;color:#166534}
+
+  /* scenario layout */
+  .scn{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:14px}
+  .scn-head{padding:13px 18px;font-weight:600;display:flex;align-items:center;gap:10px;font-size:14px}
+  .scn-head.orch{background:linear-gradient(90deg,#eef2ff,#f5f3ff);border-bottom:1px solid #e0e7ff}
+  .scn-head.duck{background:linear-gradient(90deg,#ecfdf5,#f0fdfa);border-bottom:1px solid #d1fae5}
+  .scn-body{padding:16px 18px}
+  .scn-body h4{margin:14px 0 6px;font-size:13px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em}
+  .scn-body h4:first-child{margin-top:0}
+  .story{font-size:13.5px;color:var(--ink-soft);background:#fafafa;border-left:3px solid var(--brand);padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:12px}
+  .story.orch{border-left-color:var(--orch)} .story.duck{border-left-color:var(--duck)}
+
+  /* code blocks */
+  pre.code{background:var(--code-bg);color:var(--code-fg);padding:14px 16px;border-radius:9px;font-family:ui-monospace,"SF Mono",monospace;font-size:12.5px;line-height:1.7;overflow-x:auto;margin:8px 0}
+  pre.code .k{color:#c084fc} pre.code .s{color:#86efac} pre.code .n{color:#93c5fd}
+  pre.code .c{color:#64748b;font-style:italic} pre.code .t{color:#fbbf24}
+  code.k{background:#f1f5f9;padding:1px 6px;border-radius:4px;font-size:12px;color:#0f766e;font-family:ui-monospace,monospace}
+  .kbd{font-family:ui-monospace,monospace;font-size:11px;background:#f1f5f9;padding:1px 5px;border-radius:4px;color:#334155}
+
+  /* flow */
+  .flow{display:flex;flex-direction:column;gap:8px;background:#fafafa;border:1px dashed #cbd5e1;border-radius:10px;padding:16px;margin:8px 0}
+  .flow-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .node{border:1.5px solid var(--ink-soft);border-radius:9px;padding:8px 12px;background:#fff;font-size:12.5px;min-width:108px;text-align:center}
+  .node b{display:block;font-size:13px} .node span{font-size:11px;color:var(--mute);font-family:ui-monospace,monospace}
+  .node.agent{border-color:var(--brand);background:#eff6ff}
+  .node.svc{border-color:var(--accent);background:#f5f3ff}
+  .node.db{border-color:var(--sql);background:#f0fdfa}
+  .node.http{border-color:var(--http);background:#fff7ed}
+  .node.auth{border-color:var(--auth);background:#fffbeb}
+  .node.duck{border-color:var(--duck);background:#ecfdf5}
+  .node.ok{border-color:var(--ok);background:#f0fdf4}
+  .node.err{border-color:var(--err);background:#fef2f2}
+  .node.orch{border-color:var(--orch);background:#eef2ff}
+  .arr{color:var(--mute);font-size:17px;font-weight:700;user-select:none}
+  .pill{font-size:11px;color:var(--mute);font-family:ui-monospace,monospace;background:#f1f5f9;padding:2px 7px;border-radius:5px}
+  .branch{border-left:2px dotted #cbd5e1;padding-left:12px;margin:4px 0}
+
+  /* span tree */
+  .spans{font-family:ui-monospace,monospace;font-size:12px;margin:8px 0}
+  .span-row{display:grid;grid-template-columns:1fr 110px 70px;gap:10px;align-items:center;padding:5px 8px;border-radius:5px}
+  .span-row .nm{display:flex;align-items:center;gap:7px}
+  .span-row .nm .ktag{font-size:10px;padding:1px 6px;border-radius:4px;color:#fff;white-space:nowrap}
+  .ktag.orch{background:var(--orch)} .ktag.sql{background:var(--sql)} .ktag.http{background:var(--http)}
+  .ktag.auth{background:var(--auth)} .ktag.retry{background:var(--amber);background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.4) 0 4px,transparent 4px 8px)}
+  .ktag.disc{background:#0891b2} .ktag.mat{background:var(--accent)} .ktag.join{background:var(--duck)}
+  .timeline{position:relative;height:16px;background:#f1f5f9;border-radius:4px;overflow:hidden}
+  .timeline .seg{position:absolute;top:0;bottom:0}
+
+  /* result table */
+  table.gt{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0}
+  table.gt th{background:#f8fafc;text-align:left;padding:7px 10px;border-bottom:1.5px solid var(--line);font-weight:600;color:var(--ink-soft);white-space:nowrap}
+  table.gt td{padding:6px 10px;border-bottom:1px solid #f1f5f9;color:var(--ink-soft)}
+  table.gt tr:hover td{background:#fafafa}
+  .src-cell{font-size:10.5px;padding:1px 6px;border-radius:4px;color:#fff;font-weight:600}
+  .src-cell.my{background:var(--sql)} .src-cell.pg{background:#6366f1} .src-cell.http{background:var(--http)} .src-cell.duck{background:var(--duck)}
+
+  .callout{background:#fffbeb;border:1px solid #fde68a;border-left:4px solid var(--warn);border-radius:8px;padding:11px 14px;font-size:12.5px;color:#78350f;margin:12px 0}
+  .callout b{color:#92400e}
+  .callout.red{background:#fef2f2;border-color:#fecaca;border-left-color:var(--err);color:#991b1b}
+  .callout.red b{color:#7f1d1d}
+  .note{background:var(--tint2);border:1px solid #ddd6fe;border-radius:8px;padding:11px 14px;font-size:12.5px;color:#4c1d95;margin:12px 0}
+  .note.g{background:#ecfdf5;border-color:#a7f3d0;color:#065f46}
+  .grid{display:grid;gap:18px}
+  ul.compact{margin:6px 0 0;padding-left:18px}
+  ul.compact li{margin-bottom:4px;font-size:13px;color:var(--ink-soft)}
+  hr.soft{border:0;border-top:1px solid #e5e7eb;margin:18px 0}
+  .small{font-size:11.5px;color:var(--mute)}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:900px){.two-col{grid-template-columns:1fr}}
+
+  /* custom datasource capability (extends palette, matches conventions) */
+  .cap-tag.custom{background:var(--custom)}
+  .num-badge.c{background:#f5f3ff;color:#6b21a8}
+  .scn-head.custom{background:linear-gradient(90deg,#f5f3ff,#eef2ff);border-bottom:1px solid #ddd6fe}
+  .story.custom{border-left-color:var(--custom)}
+  .node.custom{border-color:var(--custom);background:#f5f3ff}
+  .ktag.custom{background:#8b5cf6}
+  .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
+  @media(max-width:1100px){.three-col{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <span class="brand-dot"></span>
+    <h1>deepferry <small>编排引擎 &amp; 跨源聚合 &amp; 自定义数据源 · 能力场景设计</small></h1>
+    <nav class="nav-links">
+      <a href="#intro">定位</a>
+      <a href="#orch">编排引擎</a>
+      <a href="#o1">·企业DB平台</a>
+      <a href="#o2">·多区域聚合</a>
+      <a href="#custom">自定义数据源</a>
+      <a href="#cust1">·订单富化</a>
+      <a href="#duck">跨源聚合</a>
+      <a href="#d1">·客户360</a>
+      <a href="#d2">·跨系统对账</a>
+      <a href="#synergy">协同</a>
+      <a href="#limits">能力边界</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<!-- ===================== INTRO ===================== -->
+<section id="intro">
+  <div class="sec-head">
+    <span class="sec-num">00</span><h2>三项高级能力的定位与关系</h2>
+    <p>M2.5 编排 · v1 跨源聚合 · M2.5+ 自定义源</p>
+  </div>
+  <p class="lead">
+    这三项是 deepferry 区别于"又一个 MCP 数据连接器"的核心。<b>编排引擎</b>解决"如何拿到数据"——把企业平台的多步请求流程（认证→发现→路由）封装成单一数据源；
+    <b>跨源聚合</b>解决"如何重组数据"——用一条 SQL 把分散在 MySQL、PostgreSQL、登录态 HTTP API 里的数据 JOIN 成一份报表；
+    <b>自定义数据源</b>是逃生通道——当固定流程<b>混 HTTP+DB</b>或需要声明式引擎拒绝的逻辑（条件/循环/中流聚合）时，用命令式 Python 写成一个 DataSource 类。
+    三者可叠加：编排源/自定义源产出的数据，正是跨源 JOIN 的一极。Agent 多轮编排（query+params 串联）是 MCP 基线用法，与三项能力正交。
+  </p>
+
+  <div class="two-col">
+    <div class="card">
+      <h3><span class="cap-tag orch">编排引擎</span> 解决"如何拿到数据"</h3>
+      <p class="desc">OrchestratedDataSource · 对 Agent 透明的一次 query()</p>
+      <div class="flow">
+        <div class="flow-row">
+          <div class="node agent"><b>Agent</b><span>query(sql)</span></div>
+          <span class="arr">→</span>
+          <div class="node orch"><b>login</b><span>kind=auth</span></div>
+          <span class="arr">→</span>
+          <div class="node orch"><b>discover</b><span>kind=discover</span></div>
+          <span class="arr">→</span>
+          <div class="node orch"><b>route SQL</b><span>foreach 可选</span></div>
+        </div>
+        <div class="flow-row">
+          <span class="pill">Agent 视角</span>
+          <div class="small">等同 MySQL/PG 源 —— 一次 query()，一个 StructuredResult。MCP/registry/config-panel <b>永不 isinstance 特判</b>。</div>
+        </div>
+      </div>
+      <ul class="compact">
+        <li><b>线性 + foreach</b>两种拓扑（硬上限，无 if/while/DAG）</li>
+        <li><b>动态发现</b>：登录后才知道有哪些实例/资源</li>
+        <li>复用两步认证的 TokenManager（401 单次重试继承）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="cap-tag duck">跨源聚合</span> 解决"如何重组数据"</h3>
+      <p class="desc">DuckDB 嵌入式 Federation · in-process，非 ETL</p>
+      <div class="flow">
+        <div class="flow-row">
+          <div class="node agent"><b>Agent</b><span>跨源 SQL</span></div>
+          <span class="arr">→</span>
+          <div class="node duck"><b>DuckDB</b><span>JOIN/UNION/聚合</span></div>
+        </div>
+        <div class="flow-row">
+          <div class="node db"><b>MySQL</b><span>ATTACH 实时</span></div>
+          <div class="node svc"><b>PostgreSQL</b><span>ATTACH 实时</span></div>
+          <div class="node http"><b>HTTP API</b><span>物化为关系</span></div>
+        </div>
+        <div class="flow-row">
+          <span class="pill">输出</span>
+          <div class="node ok"><b>一份报表结果</b><span>带来源 provenance</span></div>
+        </div>
+      </div>
+      <ul class="compact">
+        <li><b>filter pushdown 强制</b>（红线：拒绝启动若关闭）</li>
+        <li><b>物化三层</b>：lazy / paginated / explicit</li>
+        <li><b>内存硬边界</b>：超限溢写到磁盘，绝不 OOM</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="cap-tag custom">自定义数据源</span> 解决"固定流程混 HTTP+DB"</h3>
+    <p class="desc">Custom DataSource · 命令式 Python · 组合而非继承 · 逃生通道</p>
+    <div class="flow">
+      <div class="flow-row">
+        <div class="node agent"><b>Agent</b><span>query(params)</span></div>
+        <span class="arr">→</span>
+        <div class="node custom"><b>execute()</b><span>Python 代码</span></div>
+        <span class="arr">→</span>
+        <div class="node ok"><b>StructuredResult</b><span>单一结果</span></div>
+      </div>
+      <div class="flow-row">
+        <div class="node http"><b>Leg 1</b><span>HTTP 取发票号</span></div>
+        <span class="arr">→</span>
+        <div class="node db"><b>Leg 2</b><span>MySQL 富化客户</span></div>
+        <span class="arr">→</span>
+        <div class="node http"><b>Leg 3</b><span>HTTP 对账 POST</span></div>
+      </div>
+      <div class="flow-row">
+        <span class="pill">Agent 视角</span>
+        <div class="small">一次 query() → 一个 StructuredResult；内部多步混合 HTTP+DB 藏在 execute() 里。MCP/registry/config-panel <b>永不 isinstance 特判</b>——它是普通 DataSource 子类型。</div>
+      </div>
+    </div>
+    <ul class="compact">
+      <li><b>命令式 Python</b>：完整语言表达力（<code class="k">if</code>/<code class="k">while</code>/中流聚合），声明式引擎拒绝的逻辑在此合法</li>
+      <li><b>组合优于继承</b>：持有 <code class="k">MySQLDataSource</code>（has-a），不 subclass；委托 SQL 给被组合源</li>
+      <li><b>TraceSink 强制</b>：每条 leg 开 span（<code class="k">orchestration</code>/<code class="k">http_request</code>/<code class="k">sql_exec</code>），桌面时间线原生渲染</li>
+      <li><b>不是编排引擎的矛盾</b>：编排<em>引擎</em>保持声明式 HTTP-only（可 review）；自定义<em>源</em>是另一扩展层——新源类型，按模块 review/test</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>🧭 决策图：我的流程该用哪个能力？</h3>
+    <p class="desc">按"流程形态"选层——动态 vs 固定、单类型 vs 混合、JOIN vs 取数。</p>
+    <div class="flow">
+      <div class="flow-row">
+        <div class="node agent"><b>我的流程</b><span>要拿/重组数据</span></div>
+        <span class="arr">→</span>
+        <div class="node svc"><b>动态/条件/试错？</b><span>agent 来决定下一步</span></div>
+      </div>
+      <div class="flow-row">
+        <span class="pill">是</span>
+        <div class="node orch"><b>Agent 多轮编排</b><span>query+params 串联<br>context-window 有界</span></div>
+      </div>
+      <div class="flow-row">
+        <span class="pill">否·固定流程</span>
+        <div class="node svc"><b>混 HTTP + DB？</b><span>或需声明式拒绝的逻辑</span></div>
+      </div>
+      <div class="flow-row">
+        <span class="pill">是</span>
+        <div class="node custom"><b>自定义 DataSource</b><span>type=custom:&lt;module&gt;<br>命令式 Python</span></div>
+      </div>
+      <div class="flow-row">
+        <span class="pill">否·仅 HTTP 多步</span>
+        <div class="node orch"><b>OrchestratedDataSource</b><span>type=orchestrated<br>声明式 TOML steps</span></div>
+      </div>
+      <div class="flow-row">
+        <span class="pill">否·要跨源 JOIN</span>
+        <div class="node duck"><b>DuckDB 联邦</b><span>一条跨源 SQL<br>谓词下推强制</span></div>
+      </div>
+    </div>
+    <div class="note">四条路径按"表达力 vs 成本"分层：直连源(配置) → 编排源(声明式 TOML) → 自定义源(命令式 Python) → Agent 多轮(运行时推理)。前三者对 Agent 都是"一次 query()"，复杂度藏在源内；Agent 多轮是 MCP 基线用法，跨调用串联，受 context-window 约束。</div>
+  </div>
+
+  <div class="note g"><b>叠加关系：</b>编排源（如登录态企业平台）的查询结果物化为 DuckDB 关系 → 与 MySQL 客户表 JOIN → 产出"客户在外部平台的真实下单数据"。编排拿到数据，跨源重组它——这就是 deepferry 的 ferry 本义。自定义源同理：其 <code class="k">execute()</code> 产出的关系亦可作为跨源 JOIN 的一极。</div>
+</section>
+
+<!-- ===================== ORCHESTRATION ===================== -->
+<section id="orch">
+  <div class="sec-head">
+    <span class="sec-num">01</span><h2>编排引擎 · 内容场景</h2>
+    <p><span class="cap-tag orch">Orchestration M2.5</span></p>
+  </div>
+  <p class="lead">
+    企业级数据平台几乎从不直接暴露数据库——它们要求"登录 → 列出账号可见实例 → 对选定实例路由 SQL"。
+    静态 HTTP 源无法表达这种流程（资源只能配置时枚举），而编排引擎把它声明在 <code class="kbd">config.toml</code> 里，封装为一个普通的 DataSource。
+    下面是 4 个它能覆盖的真实业务场景。
+  </p>
+</section>
+
+<!-- O1: Enterprise DB Query Platform -->
+<section id="o1">
+  <div class="card">
+    <h3><span class="num-badge o">1</span> 企业多租户 DB 查询平台 <span class="cap-tag orch">核心场景</span></h3>
+    <p class="desc">login → discover 账号实例 → route SQL。编排引擎的" raison d'être"。</p>
+    <div class="scn">
+      <div class="scn-head orch">🏷️ 业务背景 · 为什么静态 HTTP 源做不到</div>
+      <div class="scn-body">
+        <div class="story orch">
+          某公司内部"统一数据查询平台"不直连数据库，而是提供 HTTP API：先 <code class="k">POST /auth/login</code> 拿 token，
+          再 <code class="k">GET /instances</code> 列出<b>当前账号有权访问</b>的 DB 实例（每人不同），
+          最后 <code class="k">POST /instances/&lt;id&gt;/query</code> 路由 SQL。
+          <b>实例列表是登录后才知道的</b>，无法在 TOML 里预声明——这正是编排引擎要解决的：mvp-init 的原子 HTTP 源做不到。
+        </div>
+        <h4>声明式配置（config.toml）</h4>
+<pre class="code"><span class="c"># 一个编排源 = 多步流程，对 Agent 是普通数据源</span>
+[[sources]]
+id = <span class="s">"db-platform"</span>
+type = <span class="s">"orchestrated"</span>
+base_url = <span class="s">"https://db-platform.internal/api"</span>
+
+[[sources.steps]]
+name = <span class="s">"login"</span>
+kind = <span class="t">"auth"</span>            <span class="c"># 产出 token，后续步骤复用</span>
+method = <span class="s">"POST"</span>
+path = <span class="s">"/auth/login"</span>
+body_template = { username = <span class="s">"${DB_USER}"</span>, password = <span class="s">"${DB_PASS}"</span> }
+output = { token = <span class="s">"access_token"</span> }   <span class="c"># 绑定别名 → {{steps.login.token}}</span>
+
+[[sources.steps]]
+name = <span class="s">"discover"</span>
+kind = <span class="t">"discover"</span>        <span class="c"># 产出动态资源列表（list_resources 走到这里）</span>
+method = <span class="s">"GET"</span>
+path = <span class="s">"/instances"</span>
+headers = { Authorization = <span class="s">"Bearer {{steps.login.token}}"</span> }
+output = { instances = <span class="s">"data"</span> }
+
+[[sources.steps]]
+name = <span class="s">"query"</span>
+kind = <span class="t">"request"</span>
+method = <span class="s">"POST"</span>
+path = <span class="s">"/instances/{{inst_id}}/query"</span>   <span class="c"># inst_id 来自 query.params 或 discover[0]</span>
+headers = { Authorization = <span class="s">"Bearer {{steps.login.token}}"</span> }
+body_template = { sql = <span class="s">"{{sql}}"</span> }       <span class="c"># agent 的 SQL 注入到此</span>
+output = { rows = <span class="s">"data"</span> }</pre>
+        <h4>执行流程</h4>
+        <div class="flow">
+          <div class="flow-row">
+            <div class="node agent"><b>Agent</b><span>query("db-platform",<br>"SELECT ...")</span></div>
+            <span class="arr">→</span>
+            <div class="node orch"><b>step: login</b><span>POST /auth/login</span></div>
+            <span class="arr">→</span>
+            <div class="node auth"><b>取 token</b><span>{{steps.login.token}}</span></div>
+          </div>
+          <div class="flow-row">
+            <div class="node orch"><b>step: discover</b><span>GET /instances</span></div>
+            <span class="arr">→</span>
+            <div class="node orch"><b>step: query</b><span>POST /instances/{id}/query</span></div>
+            <span class="arr">→</span>
+            <div class="node ok"><b>展平 JSON</b><span>→ StructuredResult</span></div>
+          </div>
+        </div>
+        <h4>对应 Span 树（人类在桌面 /history/:id 审阅）</h4>
+        <div class="spans">
+          <div class="span-row" style="background:#f8fafc"><span class="nm"><span class="ktag orch">orch</span>orchestration · root</span><span><span class="timeline"><span class="seg" style="left:0%;width:100%;background:var(--orch)"></span></span></span><span><b>620ms</b></span></div>
+          <div class="span-row" style="padding-left:26px"><span class="nm"><span class="ktag auth">auth</span>login</span><span><span class="timeline"><span class="seg" style="left:0%;width:18%;background:var(--auth)"></span></span></span><span>110ms</span></div>
+          <div class="span-row" style="padding-left:26px"><span class="nm"><span class="ktag disc">disc</span>discover /instances</span><span><span class="timeline"><span class="seg" style="left:18%;width:25%;background:#0891b2"></span></span></span><span>155ms</span></div>
+          <div class="span-row" style="padding-left:26px"><span class="nm"><span class="ktag http">http</span>query /instances/i9/query</span><span><span class="timeline"><span class="seg" style="left:43%;width:57%;background:var(--http)"></span></span></span><span>355ms</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- O2: Multi-region foreach aggregation -->
+<section id="o2">
+  <div class="card">
+    <h3><span class="num-badge o">2</span> 多区域实例聚合查询（foreach merge）</h3>
+    <p class="desc">登录 → 发现 N 个区域实例 → 对每个跑同一份 SQL → UNION 成一张表。</p>
+    <div class="scn">
+      <div class="scn-head orch">🏷️ 业务背景 · 跨区域汇总</div>
+      <div class="scn-body">
+        <div class="story orch">
+          全球 8 个区域各部署一套订单库，通过统一平台 API 暴露。分析师要"各区域近 7 天订单总额排行"——
+          需要对 8 个实例分别查询，再把结果合并。foreach 的 <code class="k">merge</code> 模式（UNION）天然适配：一次 query() 拿到合并后的单一结果。
+        </div>
+        <h4>foreach 配置（接续上面的 login/discover）</h4>
+<pre class="code">[[sources.steps]]
+name = <span class="s">"query_each_region"</span>
+<span class="t">foreach</span> = { over = <span class="s">"{{steps.discover.instances}}"</span>, <span class="t">as</span> = <span class="s">"inst"</span>, mode = <span class="s">"merge"</span> }
+method = <span class="s">"POST"</span>
+path = <span class="s">"/instances/{{inst.id}}/query"</span>
+headers = { Authorization = <span class="s">"Bearer {{steps.login.token}}"</span> }
+body_template = { sql = <span class="s">"{{sql}}"</span> }
+output = { rows = <span class="s">"data"</span> }
+<span class="c"># merge 模式：8 次迭代的结果 UNION 成一个 StructuredResult
+# 要求每次迭代列结构一致，否则 FOREACH_SCHEMA_MISMATCH</span></pre>
+        <h4>执行流程（fan-out）</h4>
+        <div class="flow">
+          <div class="flow-row">
+            <div class="node auth"><b>login</b></div>
+            <span class="arr">→</span>
+            <div class="node orch"><b>discover</b><span>→ 8 个实例</span></div>
+            <span class="arr">→</span>
+            <div class="node orch"><b>foreach query</b><span>并发/串行迭代</span></div>
+          </div>
+          <div class="branch">
+            <div class="flow-row">
+              <div class="node http"><b>inst: us-east</b></div>
+              <div class="node http"><b>inst: eu-west</b></div>
+              <div class="node http"><b>inst: apac</b></div>
+              <span class="small">⋯ 共 8 次</span>
+            </div>
+          </div>
+          <div class="flow-row">
+            <span class="pill">merge (UNION)</span>
+            <div class="node ok"><b>单一结果表</b><span>region · order_total · ...</span></div>
+          </div>
+        </div>
+        <h4>预期结果</h4>
+        <table class="gt">
+          <thead><tr><th>region</th><th>order_total</th><th>order_count</th></tr></thead>
+          <tbody>
+            <tr><td><span class="src-cell http">us-east</span></td><td>¥ 2,481,200</td><td>3,412</td></tr>
+            <tr><td><span class="src-cell http">eu-west</span></td><td>¥ 1,902,450</td><td>2,881</td></tr>
+            <tr><td><span class="src-cell http">apac</span></td><td>¥ 1,544,900</td><td>2,103</td></tr>
+            <tr><td colspan="3" class="small">⋯ UNION 自 8 个实例</td></tr>
+          </tbody>
+        </table>
+        <div class="note"><b>separate 模式（异构 schema）：</b>若各实例列结构不同，用 <code class="k">mode = "separate"</code>，每次迭代结果独立保留，供 Agent/检查者<b>并排对比</b>（适合"不同系统返回字段不一致"的对账）。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- O3 & O4: two compact scenarios -->
+<section id="o34">
+  <div class="two-col">
+    <div class="card">
+      <h3><span class="num-badge o">3</span> 动态权限资源发现</h3>
+      <p class="desc">list_resources() 不读 TOML，而是跑流程到 discover 步骤。</p>
+      <div class="scn">
+        <div class="scn-body">
+          <div class="story orch">
+            新员工入职后权限变化，可见实例随之增减。编排源的 <code class="k">list_resources()</code> <b>首次调用或 TTL(300s) 过期</b>时，
+            才运行到 discover 步骤并物化为 Resource 列表；缓存在内存，<code class="k">auth_retry</code> 时失效（权限可能变更）。
+          </div>
+          <div class="callout"><b>隔离契约：</b>discovery <b>永不执行 query 步骤</b>——不能仅为"列个实例"就跑用户 SQL。这是硬约束。</div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3><span class="num-badge o">4</span> 登录态 SaaS 数据提取</h3>
+      <p class="desc">Salesforce / Stripe / 内部 CRM 风格的多步取数。</p>
+      <div class="scn">
+        <div class="scn-body">
+          <div class="story orch">
+            非 DB 平台但同样"先登录再取数"的 SaaS：登录拿 session → 列出业务对象 → 查询某对象。
+            编排引擎把它们统一为单一数据源，Agent 无需关心"这个 API 要先登录"——deepferry 把认证隐藏在数据源内部。
+          </div>
+          <div class="note"><b>401 继承：</b>编排流程内的任一步骤遇到 401，复用 two-step-auth 的响应式路径——失效 token → 重登 → <b>单次</b>重试，并在该步骤下开 <code class="k">auth_retry</code> 子 span。N 个并发查询仍只触发一次登录。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h3>编排引擎 · 能力小结</h3>
+    <div class="two-col">
+      <div>
+        <h4 style="margin-top:0;color:var(--orch)">✅ 能做</h4>
+        <ul class="compact">
+          <li>线性流程（login → discover → query）</li>
+          <li>foreach 扇出（merge UNION / separate 并排）</li>
+          <li>步骤间 <code class="k">{{var}}</code> 插值（Jinja 子集，仅变量引用 + 索引）</li>
+          <li>动态资源发现（TTL 缓存 + auth_retry 失效）</li>
+          <li>继承两步认证的 token 缓存与 401 重试</li>
+        </ul>
+      </div>
+      <div>
+        <h4 style="margin-top:0;color:var(--err)">❌ 不做（硬上限）</h4>
+        <ul class="compact">
+          <li>条件分支 <code class="k">if</code>（需逻辑→写专门 DataSource 实现）</li>
+          <li>循环 <code class="k">while</code> / 轮询</li>
+          <li>任意 DAG / 多分支并行（那是 Airflow 的活）</li>
+          <li>Jinja 过滤器 <code class="k">| upper</code>、模板继承（配置加载期拒绝）</li>
+          <li>用户自定义 Python（安全沙箱噩梦）</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CUSTOM DATASOURCE ===================== -->
+<section id="custom">
+  <div class="sec-head">
+    <span class="sec-num">01b</span><h2>自定义数据源 · 内容场景</h2>
+    <p><span class="cap-tag custom">Custom DataSource · M2.5+</span></p>
+  </div>
+  <p class="lead">
+    当固定流程<b>混 HTTP+DB</b>或需要声明式引擎拒绝的逻辑（条件/循环/中流聚合），把它封装成一个自定义 <code class="kbd">DataSource</code> 类。
+    Agent 仍只调一次 <code class="kbd">query()</code>，拿到一个 <code class="kbd">StructuredResult</code>；多步、混合 HTTP+DB 的逻辑住在 Python 的 <code class="kbd">execute()</code> 里。
+    这是代码级扩展点——新源类型，按模块 review/test，ABC 契约不变。
+  </p>
+</section>
+
+<!-- C1: OrderEnrichmentDataSource reference implementation -->
+<section id="cust1">
+  <div class="card">
+    <h3><span class="num-badge c">1</span> OrderEnrichmentDataSource <span class="cap-tag custom">参考实现</span></h3>
+    <p class="desc">billing API 取发票号 → MySQL 富化客户 → reconcile API 对账 POST。一个 execute()，三条 leg，全程 trace。</p>
+    <div class="scn">
+      <div class="scn-head custom">🏷️ 业务背景 · 声明式引擎表达不了的固定跨类型流程</div>
+      <div class="scn-body">
+        <div class="story custom">
+          "登录 billing API → 拉发票 ID → 在 MySQL 查客户详情 → 把每条富化记录 POST 到对账 API。"——固定、每次都一样、且<b>混 HTTP+DB</b>。
+          声明式编排引擎（仅 HTTP 步骤、无 if/while）表达不了；每次让 Agent 多轮跑又浪费 LLM 成本且依赖多跳可靠性。
+          答案是 Path 4：用 Python 写一次，作为一个 <code class="k">DataSource</code>。
+        </div>
+        <h4>execute() 代码骨架（组合优于继承 · 强制 trace）</h4>
+<pre class="code"><span class="k">class</span> OrderEnrichmentDataSource(DataSource):
+    <span class="s">"""Fixed cross-type flow: billing API → MySQL enrichment → reconcile API."""</span>
+
+    <span class="k">def</span> __init__(self, config, http_client, mysql, trace_sink):
+        self._config = config
+        self._http = http_client
+        self._mysql = mysql          <span class="c"># composed DataSource (read-only), NOT inherited</span>
+        self._trace = trace_sink
+
+    <span class="k">async def</span> execute(self, query: QueryRequest) <span class="k">-&gt;</span> StructuredResult:
+        <span class="c"># root span — kind=orchestration (this IS an orchestrated flow, in code)</span>
+        exec_id = <span class="k">await</span> self._trace.start_execution(self._config.id, root_query_id=<span class="k">None</span>)
+        root = <span class="k">await</span> self._trace.start_span(exec_id, <span class="k">None</span>, <span class="s">"order_enrichment"</span>, <span class="s">"orchestration"</span>)
+        <span class="k">try</span>:
+            <span class="c"># Leg 1 — HTTP: fetch invoice IDs (token injected by TokenManager)</span>
+            s1 = <span class="k">await</span> self._trace.start_span(exec_id, root, <span class="s">"billing.fetch_invoices"</span>, <span class="s">"http_request"</span>)
+            invoices = <span class="k">await</span> self._fetch_invoices(query.params)
+            <span class="k">await</span> self._trace.finish_span(s1, <span class="s">"ok"</span>, {<span class="s">"count"</span>: len(invoices)})
+
+            <span class="c"># Leg 2 — SQL: enrich with customer details (read-only, bounded)</span>
+            s2 = <span class="k">await</span> self._trace.start_span(exec_id, root, <span class="s">"mysql.enrich_customers"</span>, <span class="s">"sql_exec"</span>)
+            ids = [inv[<span class="s">"cust_id"</span>] <span class="k">for</span> inv <span class="k">in</span> invoices]
+            enriched = <span class="k">await</span> self._mysql.execute(QueryRequest(   <span class="c"># delegate to composed source</span>
+                source_id=self._mysql.id,
+                statement=<span class="s">"SELECT id, name, tier FROM customers WHERE id IN :ids"</span>,
+                params={<span class="s">"ids"</span>: ids}, timeout=query.timeout))
+            <span class="k">await</span> self._trace.finish_span(s2, <span class="s">"ok"</span>, {<span class="s">"rows"</span>: enriched.row_count})
+
+            <span class="c"># Leg 3 — HTTP: POST each enriched record to reconciliation (foreach, in Python)</span>
+            s3 = <span class="k">await</span> self._trace.start_span(exec_id, root, <span class="s">"reconcile.post"</span>, <span class="s">"http_request"</span>)
+            posted = <span class="k">await</span> self._post_reconciliation(enriched.rows, invoices)
+            <span class="k">await</span> self._trace.finish_span(s3, <span class="s">"ok"</span>, {<span class="s">"posted"</span>: posted})
+
+            <span class="k">await</span> self._trace.finish_span(root, <span class="s">"ok"</span>, {})
+            <span class="k">return</span> StructuredResult(
+                columns=[ColumnMeta(name=<span class="s">"cust_id"</span>, type=<span class="s">"BIGINT"</span>),
+                         ColumnMeta(name=<span class="s">"name"</span>, type=<span class="s">"VARCHAR"</span>),
+                         ColumnMeta(name=<span class="s">"reconciled"</span>, type=<span class="s">"BOOLEAN"</span>)],
+                rows=posted, row_count=len(posted), execution_time_ms=...)
+        <span class="k">except</span> Exception <span class="k">as</span> e:
+            <span class="c"># structured error — agent/user never sees a Python traceback</span>
+            <span class="k">await</span> self._trace.finish_span(root, <span class="s">"error"</span>, {<span class="s">"error"</span>: str(e)})
+            <span class="k">raise</span> DataSourceError(code=<span class="s">"ENRICHMENT_FAILED"</span>,
+                message=<span class="s">f"Order enrichment flow failed: {e}"</span>,
+                suggestion=<span class="s">"Check billing API health and MySQL connectivity"</span>)</pre>
+        <h4>对应 Span 树（1 root orchestration + 3 children · 桌面 /history/:id 原生渲染）</h4>
+        <div class="spans">
+          <div class="span-row" style="background:#f8fafc"><span class="nm"><span class="ktag custom">orch</span>orchestration · root (order_enrichment)</span><span><span class="timeline"><span class="seg" style="left:0%;width:100%;background:var(--custom)"></span></span></span><span><b>820ms</b></span></div>
+          <div class="span-row" style="padding-left:26px"><span class="nm"><span class="ktag http">http</span>billing.fetch_invoices</span><span><span class="timeline"><span class="seg" style="left:2%;width:22%;background:var(--http)"></span></span></span><span>180ms</span></div>
+          <div class="span-row" style="padding-left:26px"><span class="nm"><span class="ktag sql">sql</span>mysql.enrich_customers</span><span><span class="timeline"><span class="seg" style="left:24%;width:38%;background:var(--sql)"></span></span></span><span>310ms</span></div>
+          <div class="span-row" style="padding-left:26px"><span class="nm"><span class="ktag http">http</span>reconcile.post</span><span><span class="timeline"><span class="seg" style="left:60%;width:40%;background:var(--http)"></span></span></span><span>330ms</span></div>
+        </div>
+        <div class="note g"><b>形态与 OrchestratedDataSource 一致：</b>同样的 root <code class="k">orchestration</code> + 子 <code class="k">http_request</code>/<code class="k">sql_exec</code> span 形状——桌面时间线分不出是声明式还是命令式。Agent 始终只看到一个 StructuredResult。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- C2: When to encapsulate + composition + guardrails + registration -->
+<section id="cust2">
+  <div class="two-col">
+    <div class="card">
+      <h3><span class="num-badge c">2</span> 何时封装为自定义源 · 决策树</h3>
+      <p class="desc">三条全中才封装；否则走更低层路径。</p>
+      <div class="scn">
+        <div class="scn-head custom">✅ 封装条件（ALL true）</div>
+        <div class="scn-body">
+          <ul class="compact">
+            <li><b>① 流程固定</b>——每次跑同样的步骤（非 agent 驱动）</li>
+            <li><b>② 混源类型</b>——混 HTTP + DB，或需声明式引擎拒绝的逻辑（条件/循环/中流聚合）</li>
+            <li><b>③ 高频/关键</b>——重复次数多到 per-run 的 agent 成本/延迟/可靠性是真问题</li>
+          </ul>
+          <h4>否则走更低层路径</h4>
+          <ul class="compact">
+            <li>仅 HTTP、线性/foreach → <code class="k">OrchestratedDataSource</code>（声明式 TOML）</li>
+            <li>动态、agent 决定、小数据 → Agent 多轮编排（<code class="k">query+params</code> 串联）</li>
+            <li>既有数据的跨源 JOIN → DuckDB 联邦（<code class="k">CrossSourceDataSource</code>）</li>
+          </ul>
+          <div class="callout"><b>不是编排引擎的矛盾：</b>编排<em>引擎</em>保持声明式 HTTP-only（可 review、安全）；自定义<em>源</em>是另一扩展层——新源类型，按代码模块 review/test，恰好在内部混传输。ABC 契约不变，MCP/registry 永不 <code class="k">isinstance</code> 特判。</div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3><span class="num-badge c">3</span> 组合优于继承 · Composition over Inheritance</h3>
+      <p class="desc">自定义源委托 SQL 给被组合源，不 subclass 它。</p>
+      <div class="scn">
+        <div class="scn-head custom">🧩 has-a，不是 is-a</div>
+        <div class="scn-body">
+          <div class="story custom">
+            <code class="k">OrderEnrichmentDataSource</code> <b>持有</b>一个 <code class="k">MySQLDataSource</code>（构造注入），在 Leg 2 调 <code class="k">self._mysql.execute(...)</code> 委托 SQL。
+            它<b>不继承</b> MySQLDataSource——自定义源是它自己的 DataSource 子类型，SQL 只是它的一条 leg。这让每个源单一职责，可独立 review/test。
+          </div>
+<pre class="code"><span class="k">class</span> OrderEnrichmentDataSource(DataSource):      <span class="c"># 继承 ABC，不继承 MySQL</span>
+    <span class="k">def</span> __init__(self, config, http_client, mysql, trace_sink):
+        self._mysql = mysql                          <span class="c"># ✅ composed (has-a)</span>
+        <span class="c"># ❌ class OrderEnrichmentDataSource(MySQLDataSource):  ← 反模式</span>
+    <span class="k">async def</span> execute(self, query):
+        enriched = <span class="k">await</span> self._mysql.execute(...)   <span class="c"># 委托给被组合源</span></pre>
+          <div class="note"><b>构造注入：</b>依赖由 registry 从配置解析并注入——与 <code class="k">OrchestratedDataSource</code> 接 <code class="k">config/http_client/token_manager/trace_sink</code> 同模式。被组合源（如 <code class="k">mysql_source_id = "prod-mysql"</code>）按 id 从同一 config 解析。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h3><span class="num-badge c">4</span> 生产护栏 · 自定义源不豁免 <span class="cap-tag custom">红线</span></h3>
+    <p class="desc">自定义源不是法外之地——生产姿态（duckdb-cross-source § Production Posture）每条 execute() 必须满足。</p>
+    <table class="gt">
+      <thead><tr><th>护栏</th><th>适用 leg</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><b>Read-only 强制</b></td><td>SQL leg</td><td>只读 DB 账号 + 关键字阻断（SELECT-only）；写操作拒绝</td></tr>
+        <tr><td><b>Statement timeout</b></td><td>所有 leg</td><td>累计或 per-leg，但必须有界——挂起的 HTTP leg 不能永远跑</td></tr>
+        <tr><td><b>Row cap</b></td><td>SQL leg</td><td><code class="k">max_rows</code> 截断输出，<code class="k">truncated=true</code> 标记</td></tr>
+        <tr><td><b>Response size cap</b></td><td>HTTP leg</td><td>每条 HTTP leg <code class="k">max_response_bytes</code> 硬上限</td></tr>
+        <tr><td><b>结构化错误</b></td><td>所有 leg</td><td>失败抛 <code class="k">DataSourceError{code,message,suggestion}</code>，绝不暴露 traceback（First Principle #5）</td></tr>
+        <tr><td><b>TraceSink 强制</b></td><td>所有 leg</td><td>每条 leg 开 span；无 trace 的自定义源在 review 阶段拒绝（黑盒是 audit-trace 要消灭的问题）</td></tr>
+      </tbody>
+    </table>
+    <div class="callout red"><b>失败响亮：</b>任一 leg 失败时，<code class="k">finish_span(..., "error", ...)</code> 标记该 span，<b>已完成的 leg span 保留可见</b>——审计时一目了然哪条 leg 挂了。整体抛结构化错误，agent 拿到 <code class="k">ENRICHMENT_FAILED</code> 而非 Python 崩溃。</div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h3><span class="num-badge c">5</span> 注册 · type = "custom:&lt;module&gt;" <span class="cap-tag custom">dev-time</span></h3>
+    <p class="desc">自定义源在启动时由 registry 解析——<b>非运行时</b>（区别于内置源的运行时实例化）。</p>
+    <div class="scn">
+      <div class="scn-head custom">config.toml · 声明自定义源</div>
+      <div class="scn-body">
+<pre class="code"><span class="c"># type 约定：custom:&lt;module&gt; —— 明示这不是内置源</span>
+[[sources]]
+id = <span class="s">"order-enrichment"</span>
+type = <span class="s">"custom:order_enrichment"</span>        <span class="c"># 映射到注册的 CustomSource 类</span>
+billing_api_url = <span class="s">"https://billing.internal/v1"</span>
+reconcile_api_url = <span class="s">"https://reconcile.internal/v1"</span>
+mysql_source_id = <span class="s">"prod-mysql"</span>             <span class="c"># 被组合源引用（按 id 解析注入）</span>
+
+[sources.auth]                          <span class="c"># 复用 two-step-auth（若流程需登录）</span>
+login_path = <span class="s">"/auth/login"</span>
+<span class="c"># ...</span></pre>
+        <div class="note"><b>解析时机：</b>内置类型（<code class="k">mysql/postgresql/http/orchestrated</code>）随 deepferry 发布，运行时由 registry 实例化；自定义类型通过 entry point 或启动时显式 registry 调用注册（M2.5 TBD）。被组合源按 id 从同一 config 解析并注入构造函数——<b>dev-time 扩展，非运行时动态加载</b>。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CROSS-SOURCE ===================== -->
+<section id="duck">
+  <div class="sec-head">
+    <span class="sec-num">02</span><h2>跨源聚合 · 内容场景</h2>
+    <p><span class="cap-tag duck">DuckDB Federation · v1 核心</span></p>
+  </div>
+  <p class="lead">
+    "聚合跨源数据 <b>就是</b> 产品存在的理由。" 没有它，deepferry 退化成 N 个独立单源工具。
+    Agent 发一条 SQL，JOIN/UNION/聚合分散在 MySQL、PostgreSQL、登录态 HTTP API 的数据，拿回一份报表。
+    DuckDB 嵌入式 in-process federation——不落地仓库，查询时联合。
+  </p>
+</section>
+
+<!-- D1: Customer 360 -->
+<section id="d1">
+  <div class="card">
+    <h3><span class="num-badge d">1</span> 客户 360 视图 <span class="cap-tag duck">经典场景</span></h3>
+    <p class="desc">MySQL 客户基础信息 × 登录态 HTTP API 订单，JOIN 出完整画像。</p>
+    <div class="scn">
+      <div class="scn-head duck">🏷️ 业务背景 · 单源无法回答</div>
+      <div class="scn-body">
+        <div class="story duck">
+          "我们的 Top 客户是谁？"——客户资料在内部 MySQL，但<b>真实订单数据在外部 SaaS 平台</b>（需两步认证）。
+          分别查两边无法回答这个问题：答案天然需要 JOIN。这正是 BI 工具（Superset/Metabase）存在的理由，deepferry 要为 Agent 驱动的临时分析服务同样的需求。
+        </div>
+        <h4>Agent 发起的跨源 SQL</h4>
+<pre class="code"><span class="c">-- Agent 一条语句，deepferry 用 DuckDB 联合执行</span>
+<span class="k">SELECT</span> c.name, c.email, <span class="k">SUM</span>(o.amount) <span class="k">AS</span> total, <span class="k">COUNT</span>(*) <span class="k">AS</span> orders
+<span class="k">FROM</span> mysql_src.customers c
+<span class="k">JOIN</span> http_orders o <span class="k">ON</span> c.id = o.user_id   <span class="c"># http_orders 已物化为 DuckDB 关系</span>
+<span class="k">WHERE</span> c.created_at &gt;= <span class="s">'2024-01-01'</span>     <span class="c"># 谓词下推到 MySQL（红线）</span>
+<span class="k">GROUP BY</span> c.name, c.email
+<span class="k">ORDER BY</span> total <span class="k">DESC</span>
+<span class="k">LIMIT</span> 10;</pre>
+        <h4>执行结构</h4>
+        <div class="flow">
+          <div class="flow-row">
+            <div class="node agent"><b>Agent SQL</b></div>
+            <span class="arr">→</span>
+            <div class="node duck"><b>DuckDB 引擎</b><span>EXPLAIN 预检</span></div>
+          </div>
+          <div class="flow-row">
+            <div class="node db"><b>mysql_src</b><span>ATTACH · 谓词下推<br>仅拉符合 WHERE 的行</span></div>
+            <span class="arr">+</span>
+            <div class="node http"><b>http_orders</b><span>lazy 物化<br>JOIN 迭代时按需取数</span></div>
+          </div>
+          <div class="flow-row">
+            <span class="pill">DuckDB 本地 JOIN</span>
+            <div class="node ok"><b>10 行报表</b><span>name · total · orders</span></div>
+          </div>
+        </div>
+        <h4>结果（带来源 provenance）</h4>
+        <table class="gt">
+          <thead><tr><th>name</th><th>email</th><th>total</th><th>orders</th><th>列来源</th></tr></thead>
+          <tbody>
+            <tr><td>Alice Chen</td><td>alice@x.com</td><td>¥ 48,200</td><td>12</td><td><span class="src-cell my">MySQL</span> + <span class="src-cell http">HTTP</span></td></tr>
+            <tr><td>Bob Wang</td><td>bob@x.com</td><td>¥ 41,900</td><td>9</td><td><span class="src-cell my">MySQL</span> + <span class="src-cell http">HTTP</span></td></tr>
+            <tr><td colspan="5" class="small">⋯ 共 10 行 · 每行都能在 span 树追溯到来源</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- D2: Cross-system reconciliation -->
+<section id="d2">
+  <div class="card">
+    <h3><span class="num-badge d">2</span> 跨系统对账 <span class="cap-tag duck">高频企业场景</span></h3>
+    <p class="desc">内部财务库(PG) × 外部支付平台(HTTP)，FULL OUTER JOIN 找差异。</p>
+    <div class="scn">
+      <div class="scn-head duck">🏷️ 业务背景 · 找出"对不上的账"</div>
+      <div class="scn-body">
+        <div class="story duck">
+          财务系统(PG)记录的退款金额，要与外部支付平台(登录态 API)的实际打款对账。
+          两边都有，但<b>金额或状态对不上</b>的记录就是问题。FULL OUTER JOIN + 差异过滤，一条 SQL 找出全部异常——过去要导出两张 Excel 手工 VLOOKUP。
+        </div>
+<pre class="code"><span class="k">SELECT</span>
+  COALESCE(f.order_id, p.order_id) <span class="k">AS</span> order_id,
+  f.amount <span class="k">AS</span> internal_refund,
+  p.amount <span class="k">AS</span> external_payout,
+  <span class="k">CASE</span> <span class="k">WHEN</span> f.amount <span class="k">IS NULL</span> <span class="k">THEN</span> <span class="s">'外部有/内部无'</span>
+       <span class="k">WHEN</span> p.amount <span class="k">IS NULL</span> <span class="k">THEN</span> <span class="s">'内部有/外部无'</span>
+       <span class="k">WHEN</span> f.amount &lt;&gt; p.amount <span class="k">THEN</span> <span class="s">'金额不符'</span>
+  <span class="k">END</span> <span class="k">AS</span> issue
+<span class="k">FROM</span> pg_finance.refunds f
+<span class="k">FULL OUTER JOIN</span> http_payouts p <span class="k">ON</span> f.order_id = p.order_id
+<span class="k">WHERE</span> f.amount <span class="k">IS NULL</span> <span class="k">OR</span> p.amount <span class="k">IS NULL</span> <span class="k">OR</span> f.amount &lt;&gt; p.amount;</pre>
+        <div class="callout"><b>价值：</b>跨系统对账是企业数据消费的<b>主导模式</b>。BI 工具正为此而生。deepferry 让 Agent 也能驱动这种临时分析，无需导出手工比对。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- D3 & D4: compact -->
+<section id="d34">
+  <div class="two-col">
+    <div class="card">
+      <h3><span class="num-badge d">3</span> 运营 Top-N 报表</h3>
+      <p class="desc">跨源 JOIN + 聚合 + 排序，定时运营分析。</p>
+      <div class="scn">
+        <div class="scn-body">
+          <div class="story duck">
+            "各城市近 30 天 GMV Top10"——城市/用户在 MySQL，订单在外部 API。
+            跨源 JOIN + GROUP BY city + ORDER BY gmv DESC。DuckDB 把 <code class="k">SUM/COUNT</code> 下推到 MySQL（aggregate pushdown），JOIN 在本地完成。
+          </div>
+<pre class="code"><span class="k">SELECT</span> u.city, <span class="k">SUM</span>(o.amount) <span class="k">AS</span> gmv
+<span class="k">FROM</span> mysql_src.users u
+<span class="k">JOIN</span> http_orders o <span class="k">ON</span> u.id=o.user_id
+<span class="k">GROUP BY</span> u.city <span class="k">ORDER BY</span> gmv <span class="k">DESC</span> <span class="k">LIMIT</span> 10;</pre>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3><span class="num-badge d">4</span> 跨库 UNION 合并</h3>
+      <p class="desc">MySQL + PostgreSQL 同构数据合并查询。</p>
+      <div class="scn">
+        <div class="scn-body">
+          <div class="story duck">
+            历史订单迁移中：新订单在 PostgreSQL，旧订单在 MySQL，schema 一致。
+            <code class="k">UNION ALL</code> 后按时间统一查询，对应用透明——仿佛一张表。两个 SQL 源都走 ATTACH 实时扫描 + 谓词下推。
+          </div>
+<pre class="code"><span class="k">SELECT</span> * <span class="k">FROM</span> mysql_old.orders
+<span class="k">WHERE</span> created_at &gt;= <span class="s">'2025-06-01'</span>
+<span class="k">UNION ALL</span>
+<span class="k">SELECT</span> * <span class="k">FROM</span> pg_new.orders
+<span class="k">WHERE</span> created_at &gt;= <span class="s">'2025-06-01'</span>;</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Production guardrails -->
+<section id="guardrails">
+  <div class="card">
+    <h3>🛡️ 生产护栏（红线 · 不是优化项）</h3>
+    <p class="desc">跨源聚合"看起来危险"的部分被这些硬门挡住。每条都是 init-time 不变量或查询时预检。</p>
+    <div class="two-col">
+      <div>
+        <h4 style="margin-top:0;color:var(--err)">① Filter Pushdown 强制</h4>
+        <div class="callout red"><b>最危险的 footgun：</b>mysql/postgres scanner 默认会<b>全表拉过来</b>再本地过滤。对 1000 万行的生产表做无 WHERE 的 JOIN = 生产事故。deepferry 在启动时强制开启 <code class="k">mysql_enable_predicate_analyzer</code>；若任一 SQL 源 pushdown 关闭/不支持，<b>拒绝启动</b>（<code class="k">PUSHDOWN_DISABLED</code>）。</div>
+        <h4 style="color:var(--err)">② EXPLAIN 预检</h4>
+        <div class="small">执行前跑 <code class="k">EXPLAIN</code>，若检测到 attached 源的<b>无谓词全表扫描</b>，拒绝并返回 <code class="k">MISSING_PREDICATE</code>，建议加 WHERE / 时间范围。绝不静默拉全表。</div>
+      </div>
+      <div>
+        <h4 style="margin-top:0;color:var(--duck)">③ 物化三层策略</h4>
+        <table class="gt">
+          <thead><tr><th>策略</th><th>何时</th><th>内存</th></tr></thead>
+          <tbody>
+            <tr><td><b>Lazy</b>(默认)</td><td>仅 JOIN 需要</td><td>JOIN 输出有界</td></tr>
+            <tr><td><b>Paginated</b></td><td>响应大/支持分页</td><td>≤ max_rows_per_source(10w)</td></tr>
+            <tr><td><b>Explicit</b></td><td>运维声明缓存</td><td>磁盘 + 异步刷新</td></tr>
+          </tbody>
+        </table>
+        <h4 style="color:var(--duck)">④ 内存硬边界</h4>
+        <div class="small"><code class="k">memory_limit</code>(默认2G) + <code class="k">temp_directory</code> 溢写磁盘 + <code class="k">max_temp_directory_size</code>(10G)。超 memory 不 OOM 而<b>溢写磁盘</b>（变慢不崩）；超 temp 上限报 <code class="k">TEMP_SIZE_EXCEEDED</code>。engine 未设 memory_limit 则拒绝启动。</div>
+      </div>
+    </div>
+    <div class="note"><b>Schema 处理：</b>HTTP 资源<b>默认显式声明列</b>（TOML 里写 name/type/nullable），DuckDB 按声明建关系，字段不匹配报错而非静默接受——拒绝采样推断这种不稳定方式（API 会丢可空字段、改 key 顺序）。</div>
+    <div class="callout"><b>移除的"逃生通道"：</b>pandas 回退、无界全量物化、仅采样推断 schema、"30 秒演示"框架——全部删除。失败以结构化错误暴露，绝不掩盖。这是 v1 生产姿态，不是 demo。</div>
+  </div>
+</section>
+
+<!-- ===================== SYNERGY ===================== -->
+<section id="synergy">
+  <div class="sec-head">
+    <span class="sec-num">03</span><h2>三项能力的协同 · 编排/自定义源参与跨源 JOIN + 热重载</h2>
+    <p>1 + 1 + 1 &gt; 3</p>
+  </div>
+  <p class="lead">
+    最强的场景是三者叠加：<b>编排源</b>（登录态企业平台）或<b>自定义源</b>（混 HTTP+DB 的固定流程）产出的数据物化为 DuckDB 关系，
+    与 MySQL/PG 的表 JOIN——这才能回答"内部客户 × 外部真实下单"的终极问题。
+    编排/自定义负责"拿到数据"，跨源负责"重组数据"。三者又共享同一 registry 生命周期——<code class="kbd">registry.refresh()</code> 对所有源类型一视同仁。
+  </p>
+
+  <div class="card">
+    <h3>🎯 终极场景：内部客户库 × 登录态平台订单（跨源 JOIN）</h3>
+    <p class="desc">编排源 <code class="kbd">db-platform</code>（login→discover→route）作为跨源 JOIN 的一极。</p>
+    <div class="scn">
+      <div class="scn-head duck">数据流 · 编排拿到外部数据 → 跨源重组</div>
+      <div class="scn-body">
+        <div class="flow">
+          <div class="flow-row">
+            <div class="node agent"><b>Agent</b><span>"内部客户 × 平台订单<br>Top10"</span></div>
+            <span class="arr">→</span>
+            <div class="node duck"><b>跨源 SQL</b><span>JOIN mysql_src.customers<br>× db_platform.orders</span></div>
+          </div>
+          <div class="flow-row">
+            <div class="node db"><b>customers</b><span>ATTACH MySQL<br>谓词下推</span></div>
+            <span class="arr">+</span>
+            <div class="node orch"><b>db_platform.orders</b><span>编排源物化<br>内部跑 login→discover→query</span></div>
+          </div>
+          <div class="flow-row">
+            <span class="pill">DuckDB JOIN</span>
+            <div class="node ok"><b>10 行报表</b><span>客户名 + 平台订单额</span></div>
+          </div>
+        </div>
+
+        <h4>完整 Span 树（跨源 + 编排嵌套，人类可逐步审计）</h4>
+        <div class="spans">
+          <div class="span-row" style="background:#f8fafc"><span class="nm"><span class="ktag orch">orch</span>orchestration · root (cross-source)</span><span><span class="timeline"><span class="seg" style="left:0%;width:100%;background:var(--orch)"></span></span></span><span><b>4.8s</b></span></div>
+          <div class="span-row" style="padding-left:26px"><span class="nm"><span class="ktag sql">sql</span>mysql_src.customers (谓词下推)</span><span><span class="timeline"><span class="seg" style="left:5%;width:12%;background:var(--sql)"></span></span></span><span>580ms</span></div>
+          <div class="span-row" style="padding-left:26px"><span class="nm"><span class="ktag mat">mat</span>db_platform 物化 → DuckDB 关系</span><span><span class="timeline"><span class="seg" style="left:5%;width:75%;background:var(--accent)"></span></span></span><span>3.6s</span></div>
+          <div class="span-row" style="padding-left:52px"><span class="nm"><span class="ktag auth">auth</span>编排 login</span><span><span class="timeline"><span class="seg" style="left:6%;width:6%;background:var(--auth)"></span></span></span><span>290ms</span></div>
+          <div class="span-row" style="padding-left:52px"><span class="nm"><span class="ktag disc">disc</span>编排 discover instances</span><span><span class="timeline"><span class="seg" style="left:12%;width:13%;background:#0891b2"></span></span></span><span>620ms</span></div>
+          <div class="span-row" style="padding-left:52px"><span class="nm"><span class="ktag http">http</span>编排 route SQL (foreach)</span><span><span class="timeline"><span class="seg" style="left:25%;width:55%;background:var(--http)"></span></span></span><span>2.6s</span></div>
+          <div class="span-row" style="padding-left:26px"><span class="nm"><span class="ktag join">join</span>DuckDB JOIN + ORDER BY</span><span><span class="timeline"><span class="seg" style="left:80%;width:18%;background:var(--duck)"></span></span></span><span>620ms</span></div>
+        </div>
+        <div class="note g"><b>provenance 可追溯：</b>桌面执行详情里，每一行结果都能回答"哪个源贡献了哪些列、每段耗时多久"。编排子流程作为 materialize span 的子树嵌套——审计时一目了然。Agent 始终只看到一个 StructuredResult。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🧩 自定义源参与跨源 JOIN <span class="cap-tag custom">Custom × DuckDB</span></h3>
+    <p class="desc">自定义源的 execute() 产出亦可物化为 DuckDB 关系，成为跨源 JOIN 的一极。</p>
+    <div class="scn">
+      <div class="scn-head custom">数据流 · 自定义源拿到混合数据 → 跨源重组</div>
+      <div class="scn-body">
+        <div class="flow">
+          <div class="flow-row">
+            <div class="node agent"><b>Agent</b><span>跨源 SQL<br>JOIN mysql × order_enrichment</span></div>
+            <span class="arr">→</span>
+            <div class="node duck"><b>DuckDB</b><span>EXPLAIN 预检</span></div>
+          </div>
+          <div class="flow-row">
+            <div class="node db"><b>mysql_src.customers</b><span>ATTACH · 谓词下推</span></div>
+            <span class="arr">+</span>
+            <div class="node custom"><b>order_enrichment</b><span>execute() 物化<br>HTTP→MySQL→POST 内部跑</span></div>
+          </div>
+          <div class="flow-row">
+            <span class="pill">DuckDB JOIN</span>
+            <div class="node ok"><b>报表</b><span>客户 × 富化对账结果</span></div>
+          </div>
+        </div>
+        <div class="note"><b>对 registry 而言无差异：</b>自定义源是普通 <code class="k">DataSource</code> 实例，跨源引擎按 id ATTACH/物化它，与编排源、直连源同路径。其内部 HTTP+DB 混合对 DuckDB 不可见——只看到一个产出关系的数据源。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🔄 热重载交互 · registry.refresh() 对三类源一视同仁 <span class="cap-tag orch">Hot Reload</span></h3>
+    <p class="desc">config-panel CRUD 写入后，下一次 query() 即生效——无需进程重启。Copy-on-Write 指针 swap 对所有源类型安全。</p>
+    <div class="two-col">
+      <div>
+        <h4 style="margin-top:0;color:var(--orch)">① COW 指针 swap · 全类型安全</h4>
+        <div class="small"><code class="k">refresh()</code> 构建新 instances dict，在 GIL 下原子替换 registry 内部指针；<code class="k">query()</code> 始终读当前指针。在途查询持有它启动时的源实例引用，Python GC 保活至返回——<b>对编排源、跨源、自定义源同样安全</b>，无需类型特判。</div>
+        <h4 style="color:var(--custom)">② 自定义源实例 drain · 同规则</h4>
+        <div class="small">自定义源实例的 drain 与任何源一致：removed/edited 进入 <code class="k">draining</code> 状态，后台 asyncio 任务在优雅期（默认 30s，≥ statement timeout）后关闭；引用全落则立即关闭。其内部组合的 <code class="k">MySQLDataSource</code> 随之 drain——组合关系不延长生命周期。</div>
+      </div>
+      <div>
+        <h4 style="margin-top:0;color:var(--duck)">③ 跨源 JOIN 的 ATTACH/DETACH 串行化</h4>
+        <div class="callout"><b>写锁串行：</b>当参与跨源联邦的源（含自定义源）被增删时，对应 <code class="k">ATTACH</code>/<code class="k">DETACH</code> 在 DuckDB <b>writer lock</b> 下串行执行（ATTACH 本身是串行操作）。已在飞的跨源查询持有自己的 DuckDB 连接与其 attached 源快照——不受 refresh 影响。</div>
+        <h4 style="color:var(--mute)">④ 审计</h4>
+        <div class="small">每次 <code class="k">refresh()</code> 记录变更（added/edited/removed 源 id、触发者）到 trace store，凭证字段按 audit-trace 规约脱敏——自定义源的 dev-time 注册信息同样可审计。</div>
+      </div>
+    </div>
+    <div class="note g"><b>三类源共享生命周期：</b>编排源、自定义源、直连源在 registry 里都是 <code class="k">DataSource</code> 实例——同一 <code class="k">refresh()</code>、同一 COW swap、同一 drain、同一 ATTACH 串行规则。能力分层在"如何拿数据"，不在"如何被管理"。</div>
+  </div>
+</section>
+
+<!-- ===================== LIMITS ===================== -->
+<section id="limits">
+  <div class="sec-head">
+    <span class="sec-num">04</span><h2>能力边界与设计原则</h2>
+    <p>明确"不做什么"同样重要</p>
+  </div>
+  <div class="two-col">
+    <div class="card">
+      <h3>📐 共同的设计原则</h3>
+      <ul class="compact">
+        <li><b>DataSource ABC 神圣不可破</b>：编排是子类型，不是 MCP 之上的层；永不 <code class="k">isinstance</code> 特判</li>
+        <li><b>声明式配置</b>：流程/资源都在 <code class="k">config.toml</code>，git-diffable，可 review；无用户 Python</li>
+        <li><b>错误结构化</b>：所有失败是 JSON <code class="k">{code, message, suggestion}</code>，绝不暴露 traceback</li>
+        <li><b>Agent 简单</b>：始终一次 query() / 一条 SQL → 一个 StructuredResult；复杂度藏在数据源内</li>
+        <li><b>失败响亮</b>：pushdown 关闭、全表扫描、超内存——拒绝而非掩盖</li>
+        <li><b>审计非可选</b>：每次执行产 span 树，OTel 对齐，可导出 OTLP</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>🚫 明确不做（Out of Scope）</h3>
+      <ul class="compact">
+        <li><b>编排：</b>条件 <code class="k">if</code>、循环 <code class="k">while</code>、任意 DAG、Jinja 过滤器、用户 Python</li>
+        <li><b>认证：</b>无限重试退避（仅单次 401 重试）、OAuth2 完整授权码流</li>
+        <li><b>跨源：</b>无界全量物化、pandas 回退、采样推断 schema</li>
+        <li><b>引擎：</b>Trino/Presto 这类重型联邦服务器（DuckDB 单机嵌入式已足够）</li>
+        <li><b>规模：</b>RBAC/多租户、Kubernetes/Helm（单机部署定位）</li>
+        <li><b>方向：</b>这些限制是<b>刻意的</b>——少而精的生产功能 &gt; 多而糙的 demo</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h3>🧭 能力属性矩阵 · 五条取数路径对照</h3>
+    <p class="desc">按"形态 / 混 HTTP+DB / 表达力 / 触发 / 边界"横向对比——选层依据。</p>
+    <table class="gt">
+      <thead><tr><th>能力</th><th>形态</th><th>混 HTTP+DB</th><th>逻辑表达力</th><th>触发/调用</th><th>边界</th></tr></thead>
+      <tbody>
+        <tr><td><b>直连 SQL/HTTP 源</b></td><td>config only</td><td>❌</td><td>无</td><td>query(source_id, sql)</td><td>单源</td></tr>
+        <tr><td><span class="cap-tag orch">编排引擎</span> OrchestratedDataSource</td><td>声明式 TOML steps</td><td>❌（仅 HTTP 步骤）</td><td>线性 + foreach</td><td>query() 一次</td><td>无 if/while/DAG</td></tr>
+        <tr><td><span class="cap-tag custom">自定义源</span> Custom DataSource</td><td>命令式 Python 类</td><td>✅（一个 execute() 内）</td><td>完整（是代码）</td><td>query() 一次</td><td>tracing 强制 · 组合优于继承</td></tr>
+        <tr><td><span class="cap-tag" style="background:var(--brand)">Agent 多轮</span> Agent orchestration</td><td>agent loop</td><td>✅（跨调用）</td><td>完整（agent 推理）</td><td>多次 query()+params</td><td>context-window 有界</td></tr>
+        <tr><td><span class="cap-tag duck">跨源聚合</span> DuckDB federation</td><td>一条跨源 SQL</td><td>✅（JOIN 各源）</td><td>SQL 语义</td><td>query(cross_id, sql)</td><td>谓词下推强制 · 内存硬边界</td></tr>
+      </tbody>
+    </table>
+    <div class="note"><b>分层逻辑：</b>前三者对 Agent 都是"一次 query() → 一个 StructuredResult"，复杂度藏在源内；Agent 多轮是 MCP 基线用法，跨调用串联、受 context-window 约束；跨源聚合是"重组"维度，可与前三者中任一叠加。</div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h3>📊 能力矩阵速查</h3>
+    <table class="gt">
+      <thead><tr><th>我想做...</th><th>用哪个能力</th><th>典型形态</th></tr></thead>
+      <tbody>
+        <tr><td>查一个普通 MySQL/PG</td><td><span class="cap-tag orch" style="background:var(--sql)">直连 SQL 源</span></td><td>query(source_id, sql)</td></tr>
+        <tr><td>查一个需登录的 HTTP API</td><td><span class="cap-tag orch" style="background:var(--auth)">两步认证 HTTP 源</span></td><td>type=http + [sources.auth]</td></tr>
+        <tr><td>查"登录→列实例→路由SQL"平台</td><td><span class="cap-tag orch">编排引擎</span></td><td>type=orchestrated + steps</td></tr>
+        <tr><td>对 8 个区域实例各查一次再合并</td><td><span class="cap-tag orch">编排 foreach merge</span></td><td>step 带 foreach over={{instances}}</td></tr>
+        <tr><td>JOIN MySQL × HTTP 订单</td><td><span class="cap-tag duck">跨源聚合</span></td><td>一条跨源 SQL → DuckDB</td></tr>
+        <tr><td>内部库 × 登录态平台 JOIN</td><td><span class="cap-tag duck">编排 + 跨源 协同</span></td><td>编排源物化后参与 JOIN</td></tr>
+        <tr><td>跨系统对账找差异</td><td><span class="cap-tag duck">跨源 FULL OUTER JOIN</span></td><td>PG × HTTP + 差异过滤</td></tr>
+        <tr><td>固定流程混 HTTP API + DB 查询</td><td><span class="cap-tag custom">自定义数据源</span></td><td>type=custom:&lt;module&gt; + execute()</td></tr>
+        <tr><td>动态探索跨源类型（条件/试错）</td><td><span class="cap-tag" style="background:var(--brand)">Agent 多轮编排</span></td><td>多次 query()+params 串联</td></tr>
+        <tr><td>大量数据确定性跨源 JOIN</td><td><span class="cap-tag duck">DuckDB 联邦</span></td><td>一条跨源 SQL → 谓词下推</td></tr>
+        <tr><td>固定 HTTP 多步（login→discover→query）</td><td><span class="cap-tag orch">OrchestratedDataSource</span></td><td>type=orchestrated + steps</td></tr>
+      </tbody>
+    </table>
+    <div class="callout" style="margin-top:14px"><b>使用方式：</b>浏览器打开 <code class="k">design/capabilities-scenarios.html</code>。本文聚焦编排、跨源聚合与自定义数据源三项能力的<b>内容场景</b>；通用流程与全应用原型见 <code class="k">design/prototypes.html</code>。</div>
+  </div>
+</section>
+
+</main>
+</body>
+</html>

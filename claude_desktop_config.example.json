@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "deepferry": {
+            "command": "uv",
+            "args": ["run", "deepferry", "mcp-server", "--config", "config.toml"]
+        }
+    }
+}

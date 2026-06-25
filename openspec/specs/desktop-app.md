@@ -62,6 +62,9 @@ A cross-platform (Win + Mac) desktop application using Tauri 2.x + React + TypeS
 | `/` | `DataSourceSelector` | Select data source + write query |
 | `/results` | `QueryResults` | AG Grid display of results |
 | `/history` | `QueryHistory` | Past queries with metadata |
+| `/history/:id` | `ExecutionDetail` | Trace timeline + expandable spans for one execution (see [[audit-trace]]) |
+| `/scenarios` | `ScenarioList` | All investigation scenarios with query counts; drill into one to see its grouped queries side-by-side |
+| `/scenarios/:id` | `ScenarioDetail` | All queries in one scenario: timeline + result comparison (multi-tab / split view) |
 | `/settings` | `ConfigEditor` | Edit config.toml (advanced) |
 
 ### AG Grid Features
@@ -98,6 +101,40 @@ async def health() -> dict:
 @router.get("/api/schema/{source_id}")
 async def get_schema(source_id: str) -> Schema:
     """Get schema metadata for a data source."""
+
+@router.get("/api/executions")
+async def list_executions(
+    source_id: str | None = None, status: str | None = None,
+    limit: int = 50, offset: int = 0,
+) -> PaginatedExecutions:
+    """List execution traces (see [[audit-trace]])."""
+
+@router.get("/api/executions/{execution_id}")
+async def get_execution(execution_id: int) -> ExecutionWithSpans:
+    """One execution + its nested span tree."""
+
+@router.get("/api/executions/{execution_id}/spans/{span_id}")
+async def get_span(execution_id: int, span_id: int) -> SpanDetail:
+    """Single span detail (attributes expanded, payload excerpt if captured)."""
+
+@router.get("/api/scenarios")
+async def list_scenarios(
+    session_id: str | None = None, status: str | None = None,
+    limit: int = 50, offset: int = 0,
+) -> PaginatedScenarios:
+    """List investigation scenarios (see [[audit-trace]])."""
+
+@router.get("/api/scenarios/{scenario_id}")
+async def get_scenario(scenario_id: str) -> ScenarioWithQueries:
+    """One scenario + all its queries (executions) for grouped review."""
+
+@router.post("/api/scenarios")
+async def create_scenario(label: str | None = None, session_id: str | None = None) -> Scenario:
+    """Open a scenario (also exposed as the MCP `start_scenario` tool)."""
+
+@router.post("/api/scenarios/{scenario_id}/close")
+async def close_scenario(scenario_id: str) -> Scenario:
+    """Close a scenario (also exposed as the MCP `end_scenario` tool)."""
 ```
 
 ### Frontend State (SQLite/ui.db)
@@ -111,6 +148,35 @@ CREATE TABLE ui_state (
 -- Stores: recent sources, recent queries, column widths, sort preferences, favorites
 ```
 
+### Credential Storage
+
+Desktop mode runs on a single developer's machine; credentials belong to the
+user, not the organization. They are stored in the **OS keychain**, never in
+`config.toml` plaintext and never in the LLM context.
+
+| Platform | Backend |
+|----------|---------|
+| macOS | Keychain (via `keyring` lib) |
+| Windows | Credential Manager |
+| Linux | Secret Service (GNOME Keyring / KWallet) |
+
+Flow:
+
+1. User adds a source via the desktop UI (or confirms an agent
+   `propose_source`). The topology (type/host/port/db) is written to
+   `config.toml`; the password is written to the keychain under a service
+   entry like `deepferry/<source_id>`.
+2. On sidecar startup, the Python process resolves `${ENV_VAR}` references by
+   reading the keychain and injecting values into the process environment —
+   `DataSource` instances then consume them via the standard `${ENV_VAR}`
+   mechanism (see [[datasource-abstraction]]).
+3. Credentials never traverse the LLM: `propose_source` carries topology only
+   (no password field); audit spans redact `password|secret|token|api_key`
+   (see [[audit-trace]]).
+
+This mirrors the established pattern in DBeaver / TablePlus / DataGrip, where
+single-user tools store secrets in the OS keychain by default.
+
 ## Acceptance Criteria (M3)
 
 1. macOS installer double-click → app launches with FastAPI sidecar auto-started
@@ -120,6 +186,9 @@ CREATE TABLE ui_state (
 5. Double-click cell → inline edit (frontend only)
 6. CSV export produces valid CSV file
 7. Windows installer passes same verification
+8. `/history/:id` renders a timeline of spans in execution order with depth-based indentation; each span row expands to show kind, duration, status, and redacted attribute summaries
+9. An `auth_retry` span renders with a distinct (amber) status color vs success (green) / error (red); clicking it reveals the trigger status and attempt count
+10. A 50-span execution renders in <500ms (virtualized list, no charting library)
 
 ## Interview Story
 

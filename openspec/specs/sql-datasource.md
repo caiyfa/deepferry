@@ -97,6 +97,28 @@ Source-specific errors mapped to common error codes:
 | `IntegrityError` | `QUERY_FAILED` |
 | Timeout | `QUERY_TIMEOUT` |
 
+### Production Safeguards
+
+Agent-supplied SQL executes against production databases. deepferry is a
+read-only query ferry, but "read-only" must be **enforced at multiple layers**,
+not assumed:
+
+| Safeguard | MySQL | PostgreSQL | Why |
+|-----------|-------|------------|-----|
+| **Read-only enforcement** | Connection uses a read-only account; per-query `SET TRANSACTION READ ONLY` | `SET default_transaction_read_only = on` per connection | Defense in depth — never trust that the agent "won't" write |
+| **Statement timeout** | `SET SESSION MAX_EXECUTION_TIME = <ms>` per query | `SET statement_timeout = <ms>` per query | Kill runaway queries at the DB, not in Python; value from `QueryRequest.timeout` |
+| **Dangerous-keyword block** | Pre-scan statement for `DROP/TRUNCATE/DELETE/UPDATE/INSERT/ALTER/GRANT/REPLACE/MERGE`; reject with `WRITE_BLOCKED` | Same | Blocks accidental writes even if the account somehow has grants |
+| **Row cap** | Inject `LIMIT` if absent, capped by `[sources.X].max_rows` (default 100,000) | Same | Prevents multi-million-row fetches from exhausting memory |
+| **Streaming cursor** | `cursor.fetchmany(batch)` loop, never `fetchall()` | async `conn.fetchrow()` iteration | Large result sets stream in bounded batches |
+| **Pool ceiling** | `maxsize` from `[sources.X].max_pool_size`; default 10 | Same | One source cannot exhaust its own DB connection pool |
+| **Per-source concurrency quota** | `asyncio.Semaphore(max_concurrent_queries)` around `execute()` | Same | A busy agent cannot starve other agents or the source DB |
+
+**SQL injection stance** (explicit, documented decision): agents send free-form
+SQL — this is a query tool, not a parameterized ORM. Safety comes from the
+three gates above (read-only account + dangerous-keyword block + timeout/row
+cap), not from forbidding SQL text. This trade-off is recorded so auditors
+understand why pass-through SQL is intentional rather than an oversight.
+
 ## Acceptance Criteria (M1)
 
 ### MySQL
@@ -112,8 +134,14 @@ Source-specific errors mapped to common error codes:
 ### CI
 7. CI includes `mysql:8` and `postgres:16` Docker services
 8. Integration tests connect to both databases and verify CRUD
+9. A `DROP TABLE` statement is rejected with `WRITE_BLOCKED` before reaching the DB
+10. A query exceeding `statement_timeout` is killed server-side and returns `QUERY_TIMEOUT`
+11. A `SELECT` returning >`max_rows` rows is truncated; result carries `truncated=true`
+12. 100 concurrent queries against one source honor `max_concurrent_queries` (excess queue, do not exceed)
+13. `fetchall()` is never called in any code path (grep-enforced: streaming only)
 
 ## Dependencies
 
 - [[datasource-abstraction]] — Base class
 - [[mcp-server]] — Exposed as tools
+- [[duckdb-cross-source]] — SQL sources become ATTACH targets for federation (v1 core)

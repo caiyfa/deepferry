@@ -13,6 +13,22 @@
 | Target Role | DeepSeek Agent Engineer |
 | Timeline | 16.5 weeks (4 milestones) |
 
+## Operating Modes
+
+deepferry serves two deployment scenarios off one shared core. The modes
+differ in **who provisions data sources, how credentials are stored, and what
+the agent is allowed to do** — not in the query path itself.
+
+| Mode | Scenario | User | Credentials | Agent source provisioning |
+|------|----------|------|-------------|---------------------------|
+| **Desktop** (Tauri sidecar) | Dev/Ops ad-hoc data triage — fast, exploratory | Single developer (local) | OS keychain (macOS Keychain / Windows Credential Manager / Linux Secret Service) | `propose_source` tool exposed; agent proposes topology, user one-click confirms |
+| **Server** (MCP over Streamable HTTP) | Production reporting — stable, governed | Team / org (multi-user) | Secrets backend (env / Vault / KMS) | No provisioning tool; admin-only via config-panel Web UI |
+
+Both modes share the `DataSource` ABC, `config.toml` schema, and the
+`${ENV_VAR}` credential injection layer — only the credential *source* and the
+agent's provisioning capability differ. See [[mcp-server]] § Operating Modes,
+[[config-panel]] § Source Governance, [[desktop-app]] § Credential Storage.
+
 ## Architecture
 
 ```
@@ -79,11 +95,30 @@
 | Milestone | Contents | Timeline |
 |-----------|----------|----------|
 | M1 | MCP Server + MySQL + PostgreSQL + DataSource abstraction | Week 1-5 |
-| M2 | HTTP API data source + two-step authentication | Week 6-9 |
-| M3 | Tauri desktop table application | Week 10-14 |
-| M4 | DuckDB cross-source JOIN + open source polish | Week 15-18 |
+| M2 | HTTP API data source + two-step authentication (incl. reactive 401) | Week 6-9 |
+| M2.5 | Orchestration engine + execution trace & audit + scenario correlation | Week 9-11 |
+| M3 | Tauri desktop table application (incl. execution detail + scenario views) | Week 11-15 |
+| M4 | Cross-source aggregation (production-grade DuckDB federation) + open source polish | Week 15-18 |
 
-## Out of Scope (MVP)
+### v1 Production Posture
+
+The first version ships **fewer features, each production-grade** — not a demo.
+The guiding rules:
+
+- **No demo escape hatches**: the pandas cross-source fallback, sampling-only
+  schema inference, and "30-second showcase" framing are removed. Failures
+  surface as structured errors, never masked.
+- **Cross-source aggregation is v1 core**, not a demo finale — it is the
+  product's reason to exist (recombine data across sources into reports).
+- **Production safeguards are mandatory on every data path**: read-only
+  enforcement, statement timeouts, row caps, streaming cursors, pool ceilings,
+  filter-pushdown enforcement, and memory bounding. See [[sql-datasource]],
+  [[http-api-datasource]], [[duckdb-cross-source]].
+- **Auditability is non-optional**: every query produces a span tree; every
+  investigation can be grouped into a scenario and reviewed step-by-step. See
+  [[audit-trace]].
+
+### Out of Scope (MVP)
 
 - Oracle / SQL Server (CI cost disproportionate)
 - OAuth2 full authorization code flow (complexity 3x)

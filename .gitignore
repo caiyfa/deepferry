@@ -37,3 +37,9 @@ Thumbs.db
 
 # Tauri build artifacts
 frontend/src-tauri/target/
+
+# Runtime config (contains credentials)
+config.toml
+
+# Sisyphus session state
+.sisyphus/

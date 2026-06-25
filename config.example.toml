@@ -1,0 +1,30 @@
+# deepferry — Example Configuration
+# Copy to config.toml and replace ${ENV_VAR} values or set environment variables.
+
+# ── Server settings (optional) ──────────────────────────────────────────
+[server]
+host = "127.0.0.1"
+port = 8000
+log_level = "info"
+
+# ── MySQL data source ───────────────────────────────────────────────────
+[[sources]]
+id = "mysql-main"
+type = "mysql"
+name = "Main MySQL Database"
+host = "${MYSQL_HOST:localhost}"
+port = 3306
+database = "${MYSQL_DATABASE:testdb}"
+user = "${MYSQL_USER:root}"
+password = "${MYSQL_PASSWORD}"
+
+# ── PostgreSQL data source ──────────────────────────────────────────────
+[[sources]]
+id = "pg-analytics"
+type = "postgresql"
+name = "Analytics PostgreSQL"
+host = "${POSTGRES_HOST:localhost}"
+port = 5432
+database = "${POSTGRES_DATABASE:testdb}"
+user = "${POSTGRES_USER:postgres}"
+password = "${POSTGRES_PASSWORD}"

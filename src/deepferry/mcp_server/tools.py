@@ -1,0 +1,145 @@
+"""Tool handler functions for the deepferry MCP server.
+
+Each function performs a single MCP tool operation (list sources, list tables,
+schema introspection, query execution).  They delegate to the SourceRegistry and
+DataSource implementations, catching unexpected exceptions and wrapping them in
+structured ``DataSourceError`` instances so agents never see raw tracebacks.
+
+DeepFerryError subclasses are re-raised as-is; the call_tool handler in
+``server.py`` formats them into JSON for the agent.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from deepferry.core.errors import DataSourceError, DeepFerryError
+from deepferry.core.models import QueryRequest, QueryResult, TableInfo
+
+if TYPE_CHECKING:
+    from deepferry.core.models import Schema, SourceSummary
+    from deepferry.datasources.registry import SourceRegistry
+
+
+async def list_sources(registry: SourceRegistry) -> list[SourceSummary]:
+    """Return all configured data sources with their type and health status.
+
+    Delegates to ``registry.list_sources()`` which returns a ``SourceSummary``
+    per source.  Health is reported as ``"unknown"`` for sources that have not
+    been explicitly probed.
+    """
+    try:
+        return registry.list_sources()
+    except DeepFerryError:
+        raise
+    except Exception as exc:
+        raise DataSourceError(
+            code="LIST_SOURCES_FAILED",
+            message=f"Failed to enumerate data sources: {exc}",
+        ) from exc
+
+
+async def list_tables(
+    registry: SourceRegistry,
+    source_id: str,
+) -> list[TableInfo]:
+    """List all tables and views available in *source_id*.
+
+    Calls ``source.list_resources()`` and converts each ``Resource`` into a
+    ``TableInfo`` model suitable for returning to an LLM agent.
+    """
+    try:
+        source = registry.get(source_id)
+        resources = await source.list_resources()
+        return [
+            TableInfo(
+                name=r.name,
+                type=r.type,
+                row_count=None,  # Not available from resource listing alone
+            )
+            for r in resources
+        ]
+    except DeepFerryError:
+        raise
+    except Exception as exc:
+        raise DataSourceError(
+            code="LIST_TABLES_FAILED",
+            message=f"Failed to list tables for source {source_id!r}: {exc}",
+        ) from exc
+
+
+async def schema_info(
+    registry: SourceRegistry,
+    source_id: str,
+    table: str | None = None,
+) -> Schema:
+    """Get column-level schema metadata for *source_id*.
+
+    When *table* is ``None`` the source returns schema for all known resources.
+    Otherwise metadata is limited to the named resource.
+    """
+    try:
+        source = registry.get(source_id)
+        return await source.schema_info(resource=table)
+    except DeepFerryError:
+        raise
+    except Exception as exc:
+        raise DataSourceError(
+            code="SCHEMA_INFO_FAILED",
+            message=f"Failed to retrieve schema for source {source_id!r}: {exc}",
+        ) from exc
+
+
+async def execute_query(
+    registry: SourceRegistry,
+    source_id: str,
+    sql: str,
+    params: dict[str, Any] | None = None,
+    max_rows: int | None = None,
+) -> QueryResult:
+    """Execute a SQL query against *source_id* and return structured results.
+
+    Parameters
+    ----------
+    registry : SourceRegistry
+        The live registry holding connected data sources.
+    source_id : str
+        The data source ID declared in ``config.toml``.
+    sql : str
+        The SQL statement to execute (parameterized via *params*).
+    params : dict[str, Any] | None
+        Optional named parameters for the query.
+    max_rows : int | None
+        Optional limit on the number of rows returned.
+
+    Returns
+    -------
+    QueryResult
+        Columns, rows, row count, execution time, and the source ID.
+    """
+    try:
+        source = registry.get(source_id)
+
+        request = QueryRequest(
+            source_id=source_id,
+            statement=sql,
+            params=params,
+            max_rows=max_rows,
+        )
+
+        result = await source.execute(request)
+
+        return QueryResult(
+            columns=result.columns,
+            rows=result.rows,
+            row_count=result.row_count,
+            execution_time_ms=result.execution_time_ms,
+            source_id=source_id,
+        )
+    except DeepFerryError:
+        raise
+    except Exception as exc:
+        raise DataSourceError(
+            code="QUERY_FAILED",
+            message=f"Query failed on source {source_id!r}: {exc}",
+        ) from exc

@@ -95,18 +95,76 @@ HTTP "queries" are endpoint invocations:
 
 ### Query Parameters
 
+`QueryRequest.params` (a `dict`) is the universal carrier for agent-supplied
+values. Its binding depends on the resource's HTTP method, and is the mechanism
+that enables **multi-turn agent orchestration** (see [[mcp-server]] § Multi-Turn
+Agent Orchestration): an agent passes a value learned in a prior `query()` into
+the next one via `params`.
+
+For HTTP sources, `query.statement` carries the **resource name** (the
+`[[sources.resources]]` `name` to invoke), and `query.params` is bound as
+follows:
+
+| Resource method | `params` binding |
+|-----------------|------------------|
+| `GET` | URL query string (`?key=value&...`) |
+| `POST` / `PUT` / `PATCH` | `body_template` `{{var}}` interpolation, resolved against `params` |
+
 ```python
 async def execute(self, query: QueryRequest) -> StructuredResult:
-    resource = self._find_resource(query.resource_name)
-    # Build URL with query params
+    resource = self._find_resource(query.statement)   # statement = resource name
     url = f"{self._config.base_url}{resource.path}"
-    if query.params:
-        url += "?" + urlencode(query.params)
-    # Execute request
-    response = await self._client.get(url, headers=self._config.default_headers)
-    # Flatten and return
+
+    if resource.method == "GET":
+        if query.params:
+            url += "?" + urlencode(query.params)
+        response = await self._client.get(url, headers=self._config.default_headers)
+
+    elif resource.method in ("POST", "PUT", "PATCH"):
+        # body_template {{var}} tokens resolve from query.params FIRST,
+        # then from configured defaults. Unresolved tokens → INVALID_BINDING.
+        body = self._render_body_template(resource.body_template, query.params)
+        response = await self._client.request(
+            resource.method, url, json=body, headers=self._config.default_headers
+        )
+
     return self._flatten_json(response.json(), resource.name)
 ```
+
+**`body_template` interpolation contract.** Every `{{name}}` token in a
+resource's `body_template` MUST resolve against `QueryRequest.params` at query
+time (falling back to the resource's configured defaults). This is what lets an
+agent POST data it obtained from a previous step — e.g. after querying MySQL,
+the agent calls `query("logistics-api", "create_shipment",
+params={"order_id": "O-5001", "items": [...]})` and those values flow into the
+configured `body_template = { order = "{{order_id}}", items = "{{items}}" }`.
+
+```toml
+[[sources.resources]]
+name = "create_shipment"
+path = "/shipments"
+method = "POST"
+body_template = { order = "{{order_id}}", items = "{{items}}", warehouse = "WH-01" }
+# {{order_id}} and {{items}} resolve from params; "WH-01" is a static default.
+```
+
+Unresolved `{{var}}` (present in template, absent from `params` and defaults)
+raises `INVALID_BINDING` at execution — never silently sent as a literal
+`"{{var}}"` string.
+
+### Production Safeguards
+
+HTTP sources face different risks than SQL: unbounded response sizes, schema
+drift, and silent type coercion. The following are mandatory:
+
+| Safeguard | Implementation | Why |
+|-----------|----------------|-----|
+| **Response size cap** | Reject responses exceeding `max_response_bytes` (default 50MB) with `RESPONSE_TOO_LARGE` | Prevent memory exhaustion from a misbehaving endpoint |
+| **Row cap on flatten** | Stop flattening at `max_rows` (default 100,000); set `truncated=true` in result | Unbounded arrays blow up the result set |
+| **Explicit schema preferred** | `[[sources.resources]] columns = [...]` declares types; sampling only when omitted (see [[duckdb-cross-source]] § Schema Handling) | Sampling one response is unstable; explicit declaration is production-grade |
+| **Pagination** | If endpoint supports `?offset=`/`?cursor=`, fetch up to `max_rows` in pages | Avoid single-request fetches of huge datasets |
+| **Request timeout** | Per-request `httpx2` timeout from `QueryRequest.timeout` | Hung endpoints must not block the agent |
+| **Status-code mapping** | 4xx → `HTTP_CLIENT_ERROR`; 5xx → `HTTP_SERVER_ERROR`; 401 → reactive auth path (see [[two-step-auth]]) | Errors are structured JSON, never raw tracebacks |
 
 ## Acceptance Criteria (M2)
 
@@ -115,6 +173,10 @@ async def execute(self, query: QueryRequest) -> StructuredResult:
 3. `list_resources` returns configured endpoints
 4. Error responses (4xx, 5xx) mapped to structured errors
 5. Config validation: missing `base_url` or `resources` raises clear error at startup
+6. A response >`max_response_bytes` is rejected with `RESPONSE_TOO_LARGE` (no OOM)
+7. An array >`max_rows` is truncated; result carries `truncated=true`
+8. An explicitly-declared `columns` schema rejects mismatched response fields (no silent VARCHAR coercion)
+9. A paginated endpoint is fetched page-by-page up to `max_rows`, not in one request
 
 ## Interview Story
 

@@ -33,9 +33,16 @@ openspec/              ← Spec-Driven Development artifacts (read FIRST)
 │   ├── two-step-auth.md
 │   ├── desktop-app.md
 │   ├── duckdb-cross-source.md
+│   ├── orchestration.md
+│   ├── audit-trace.md
+│   ├── custom-datasource.md
 │   └── config-panel.md
 └── changes/           ← Change proposals
-    └── mvp-init/      ← Current change
+    ├── mvp-init/      ← Initial MVP baseline
+    │   ├── proposal.md
+    │   ├── design.md
+    │   └── tasks.md
+    └── orchestration-audit/  ← Orchestration + audit + production hardening
         ├── proposal.md
         ├── design.md
         └── tasks.md

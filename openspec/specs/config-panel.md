@@ -35,6 +35,27 @@ DELETE /api/config/sources/:id      # Remove source
 POST   /api/config/sources/:id/test # Test connection
 ```
 
+### Source Governance (Mode-Dependent)
+
+Who may add/edit/delete sources depends on the operating mode (see
+[[project]] § Operating Modes):
+
+| Mode | Who can mutate sources | Approval | Credential entry |
+|------|------------------------|----------|------------------|
+| Desktop | Single local user (no RBAC) | Immediate (one-click) | OS keychain (see [[desktop-app]] § Credential Storage) |
+| Server (production) | **Admin only** (RBAC) | Required — changes go through a review/deploy window | Secrets backend (env / Vault); never plaintext in `config.toml` |
+
+In server mode the config-panel Web UI is the administrative surface for data
+source lifecycle. Non-admin users may browse and query, but cannot create,
+edit, or delete source connections. Every mutation is recorded in the audit
+trace (who/when/what-changed) alongside query spans.
+
+**Hot reload.** A successful CRUD write updates `config.toml` atomically
+(write-to-temp + rename) and triggers `registry.refresh()` — the new/updated
+source becomes queryable on the next `query()` call, with no process restart.
+In-flight queries complete against the source instance they started on; see
+[[datasource-abstraction]] § Registry Lifecycle for the refresh contract.
+
 ### Connection Test
 
 ```python
