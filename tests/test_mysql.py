@@ -248,7 +248,7 @@ class TestExecute:
         )
 
         mock_cursor.execute.assert_awaited_once_with(
-            "SELECT val FROM t WHERE id = %(pk)s", {"pk": 42}
+            "SELECT val FROM t WHERE id = %(pk)s", (42,)
         )
 
     @pytest.mark.asyncio

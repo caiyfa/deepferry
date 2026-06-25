@@ -18,7 +18,8 @@ from deepferry.core.models import (
     Schema,
     StructuredResult,
 )
-from deepferry.datasources.postgresql import PostgreSQLConfig, PostgreSQLDataSource
+from deepferry.config import SourceConfig
+from deepferry.datasources.postgresql import PostgreSQLDataSource
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -47,17 +48,16 @@ def _make_record(**kwargs: Any) -> dict[str, Any]:
 
 
 def test_pg_config_defaults() -> None:
-    cfg = PostgreSQLConfig()
-    assert cfg.host == "localhost"
-    assert cfg.port == 5432
-    assert cfg.user == "postgres"
-    assert cfg.password == ""
-    assert cfg.database == "postgres"
+    cfg = SourceConfig(id="pg", type="postgresql")
+    assert cfg.host is None
+    assert cfg.port is None
+    assert cfg.user is None
+    assert cfg.password is None
+    assert cfg.database is None
 
 
 def test_pg_config_custom() -> None:
-    cfg = PostgreSQLConfig(
-        host="db.example.com",
+    cfg = SourceConfig(id="pg", type="postgresql", host="db.example.com",
         port=5433,
         user="admin",
         password="s3cret",
@@ -75,7 +75,7 @@ def test_pg_config_custom() -> None:
 
 @pytest.mark.asyncio
 async def test_connect_creates_pool() -> None:
-    cfg = PostgreSQLConfig(host="pg.local", database="testdb")
+    cfg = SourceConfig(id="pg", type="postgresql",host="pg.local", database="testdb")
     source = PostgreSQLDataSource(cfg)
 
     mk = AsyncMock(return_value=AsyncMock())
@@ -95,7 +95,7 @@ async def test_connect_creates_pool() -> None:
 
 @pytest.mark.asyncio
 async def test_connect_idempotent() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mk = AsyncMock(return_value=AsyncMock())
@@ -107,7 +107,7 @@ async def test_connect_idempotent() -> None:
 
 @pytest.mark.asyncio
 async def test_connect_failure_maps_to_data_source_error() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     with patch("deepferry.datasources.postgresql.asyncpg.create_pool") as mk:
@@ -122,7 +122,7 @@ async def test_connect_failure_maps_to_data_source_error() -> None:
 
 @pytest.mark.asyncio
 async def test_disconnect_closes_pool() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
     mock_pool = _build_mock_pool()
     source._pool = mock_pool
@@ -135,7 +135,7 @@ async def test_disconnect_closes_pool() -> None:
 
 @pytest.mark.asyncio
 async def test_disconnect_idempotent() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     await source.disconnect()  # no pool — should be safe no-op
@@ -147,7 +147,7 @@ async def test_disconnect_idempotent() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_select_returns_structured_result() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -177,7 +177,7 @@ async def test_execute_select_returns_structured_result() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_with_params_converts_dict_to_positional() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -200,7 +200,7 @@ async def test_execute_with_params_converts_dict_to_positional() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_max_rows_truncates() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     rows_data = [_make_record(id=i) for i in range(10)]
@@ -222,7 +222,7 @@ async def test_execute_max_rows_truncates() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_with_timeout_passed_to_fetch() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -246,7 +246,7 @@ async def test_execute_with_timeout_passed_to_fetch() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_not_connected_raises() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     with pytest.raises(DataSourceError) as exc_info:
@@ -259,7 +259,7 @@ async def test_execute_not_connected_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_syntax_error() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -278,7 +278,7 @@ async def test_execute_syntax_error() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_undefined_table_error() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -297,7 +297,7 @@ async def test_execute_undefined_table_error() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_connection_lost_error() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -316,7 +316,7 @@ async def test_execute_connection_lost_error() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_timeout_error() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -335,7 +335,7 @@ async def test_execute_timeout_error() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_unexpected_error() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -355,7 +355,7 @@ async def test_execute_unexpected_error() -> None:
 
 @pytest.mark.asyncio
 async def test_list_resources_returns_tables_and_views() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -378,7 +378,7 @@ async def test_list_resources_returns_tables_and_views() -> None:
 
 @pytest.mark.asyncio
 async def test_list_resources_not_connected_raises() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     with pytest.raises(DataSourceError) as exc_info:
@@ -389,7 +389,7 @@ async def test_list_resources_not_connected_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_list_resources_pg_catalog_failure() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -407,7 +407,7 @@ async def test_list_resources_pg_catalog_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_schema_info_all_tables() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -439,7 +439,7 @@ async def test_schema_info_all_tables() -> None:
 
 @pytest.mark.asyncio
 async def test_schema_info_single_table() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -465,7 +465,7 @@ async def test_schema_info_single_table() -> None:
 
 @pytest.mark.asyncio
 async def test_schema_info_not_connected_raises() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     with pytest.raises(DataSourceError) as exc_info:
@@ -479,7 +479,7 @@ async def test_schema_info_not_connected_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_health_check_healthy() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -497,7 +497,7 @@ async def test_health_check_healthy() -> None:
 
 @pytest.mark.asyncio
 async def test_health_check_not_connected() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     status = await source.health_check()
@@ -508,7 +508,7 @@ async def test_health_check_not_connected() -> None:
 
 @pytest.mark.asyncio
 async def test_health_check_failure() -> None:
-    cfg = PostgreSQLConfig()
+    cfg = SourceConfig(id="pg", type="postgresql")
     source = PostgreSQLDataSource(cfg)
 
     mock_conn = MagicMock()
@@ -534,7 +534,7 @@ def _pg_env(key: str, default: str) -> str:
 @pytest.mark.asyncio
 async def test_integration_connect_and_health() -> None:
     """Connect to a real PostgreSQL instance and verify health check."""
-    cfg = PostgreSQLConfig(
+    cfg = SourceConfig(id="pg", type="postgresql",
         host=_pg_env("POSTGRES_HOST", "localhost"),
         port=int(_pg_env("POSTGRES_PORT", "5432")),
         user=_pg_env("POSTGRES_USER", "postgres"),
@@ -555,7 +555,7 @@ async def test_integration_connect_and_health() -> None:
 @pytest.mark.asyncio
 async def test_integration_list_resources_and_schema() -> None:
     """Create a temp table, list it, introspect its schema, then clean up."""
-    cfg = PostgreSQLConfig(
+    cfg = SourceConfig(id="pg", type="postgresql",
         host=_pg_env("POSTGRES_HOST", "localhost"),
         port=int(_pg_env("POSTGRES_PORT", "5432")),
         user=_pg_env("POSTGRES_USER", "postgres"),
@@ -596,7 +596,7 @@ async def test_integration_list_resources_and_schema() -> None:
 @pytest.mark.asyncio
 async def test_integration_execute_and_health() -> None:
     """Execute a SELECT query against a real PostgreSQL instance."""
-    cfg = PostgreSQLConfig(
+    cfg = SourceConfig(id="pg", type="postgresql",
         host=_pg_env("POSTGRES_HOST", "localhost"),
         port=int(_pg_env("POSTGRES_PORT", "5432")),
         user=_pg_env("POSTGRES_USER", "postgres"),
