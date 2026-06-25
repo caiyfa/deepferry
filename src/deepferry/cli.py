@@ -58,6 +58,7 @@ def main() -> None:
 async def _run_mcp_server(args: argparse.Namespace) -> None:
     """Load config, instantiate the registry, and start the chosen transport."""
     # Import datasource modules so they call register_source_type().
+    import deepferry.datasources.http_api  # noqa: F401
     import deepferry.datasources.mysql  # noqa: F401
     import deepferry.datasources.postgresql  # noqa: F401
 
@@ -65,20 +66,29 @@ async def _run_mcp_server(args: argparse.Namespace) -> None:
     registry = SourceRegistry()
     await registry.load_from_config(config)
 
-    if args.transport == "http":
-        from deepferry.mcp_server.server import run_http_server
+    from deepferry.engine.duckdb import DuckDBEngine
 
-        logger.info(
-            "Starting MCP server on http://%s:%d (Streamable HTTP)",
-            args.host,
-            args.port,
-        )
-        await run_http_server(registry, host=args.host, port=args.port)
-    else:
-        from deepferry.mcp_server.server import run_stdio_server
+    engine = DuckDBEngine(registry)
+    await engine.connect()
 
-        logger.info("Starting MCP server over stdio")
-        await run_stdio_server(registry)
+    try:
+        if args.transport == "http":
+            from deepferry.mcp_server.server import run_http_server
+
+            logger.info(
+                "Starting MCP server on http://%s:%d (Streamable HTTP)",
+                args.host,
+                args.port,
+            )
+            await run_http_server(registry, host=args.host, port=args.port, engine=engine)
+        else:
+            from deepferry.mcp_server.server import run_stdio_server
+
+            logger.info("Starting MCP server over stdio")
+            await run_stdio_server(registry, engine=engine)
+    finally:
+        await engine.disconnect()
+        await registry.shutdown()
 
 
 if __name__ == "__main__":

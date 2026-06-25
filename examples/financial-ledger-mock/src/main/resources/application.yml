@@ -1,0 +1,44 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: financial-ledger-mock
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3308/finance_ledger}
+    username: ${SPRING_DATASOURCE_USERNAME:finance}
+    password: ${SPRING_DATASOURCE_PASSWORD:finance_pass}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      connection-timeout: 10000
+      maximum-pool-size: 10
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    defer-datasource-initialization: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: false
+    show-sql: false
+    open-in-view: false
+
+  sql:
+    init:
+      mode: always
+
+app:
+  jwt:
+    secret: "deepferry-financial-mock-super-secret-key-at-least-256-bits-long-please-change-in-production"
+    access-ttl: 3600
+    refresh-ttl: 604800
+  auth:
+    default-user: admin
+    default-password: deepferry123
+
+logging:
+  level:
+    com.deepferry: INFO
+    org.springframework.security: WARN

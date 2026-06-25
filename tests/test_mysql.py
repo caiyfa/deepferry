@@ -278,13 +278,12 @@ class TestExecute:
         mock_pool, _, _ = _setup_mock_pool(cursor)
         source._pool = mock_pool
 
-        result = await source.execute(
-            QueryRequest(source_id="test-mysql", statement="CREATE TABLE foo (id INT)")
-        )
-
-        assert result.columns == []
-        assert result.rows == []
-        assert result.row_count == 0
+        # DDL (CREATE TABLE) is rejected by read-only enforcement
+        with pytest.raises(DataSourceError) as exc_info:
+            await source.execute(
+                QueryRequest(source_id="test-mysql", statement="CREATE TABLE foo (id INT)")
+            )
+        assert exc_info.value.code == "WRITE_NOT_ALLOWED"
 
     @pytest.mark.asyncio
     async def test_execute_query_failed(self) -> None:
@@ -380,7 +379,8 @@ class TestExecute:
             await source.execute(
                 QueryRequest(source_id="test-mysql", statement="INSERT INTO t VALUES (1)")
             )
-        assert exc_info.value.code == "QUERY_FAILED"
+        # INSERT is rejected by read-only enforcement before reaching the DB
+        assert exc_info.value.code == "WRITE_NOT_ALLOWED"
 
 
 # ── List resources ───────────────────────────────────────────────────

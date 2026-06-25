@@ -1,0 +1,47 @@
+# ============================================================
+# Financial Ledger Mock — Docker Compose
+# ============================================================
+# Starts MySQL + Spring Boot microservice for deepferry validation.
+#
+# Usage:  docker compose up --build
+# Access: http://localhost:8080
+# MySQL:  localhost:3308 (container 3306)
+# ============================================================
+
+services:
+  mysql-finance:
+    image: mysql:8
+    container_name: finance-ledger-mysql
+    restart: unless-stopped
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_DATABASE: finance_ledger
+      MYSQL_USER: finance
+      MYSQL_PASSWORD: finance_pass
+      MYSQL_ROOT_PASSWORD: root_pass
+    volumes:
+      - finance-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  financial-mock:
+    build: .
+    container_name: financial-ledger-mock
+    restart: on-failure
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql-finance:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-finance:3306/finance_ledger
+      SPRING_DATASOURCE_USERNAME: finance
+      SPRING_DATASOURCE_PASSWORD: finance_pass
+
+volumes:
+  finance-mysql-data:

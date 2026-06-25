@@ -20,6 +20,7 @@ from deepferry.core.models import QueryRequest, QueryResult, TableInfo
 if TYPE_CHECKING:
     from deepferry.core.models import Schema, SourceSummary
     from deepferry.datasources.registry import SourceRegistry
+    from deepferry.engine.duckdb import DuckDBEngine
 
 
 async def list_sources(registry: SourceRegistry) -> list[SourceSummary]:
@@ -161,6 +162,57 @@ async def start_scenario(label: str | None = None) -> dict[str, Any]:
     """
     scenario_id = str(uuid.uuid4())
     return {"scenario_id": scenario_id, "label": label}
+
+
+async def cross_query(
+    registry: SourceRegistry,
+    engine: DuckDBEngine,
+    sql: str,
+    max_rows: int | None = None,
+) -> QueryResult:
+    """Execute a cross-source SQL query via DuckDB federation.
+
+    Reference sources as ``source_id.table_name`` (e.g.
+    ``mysql_src.customers JOIN http_src.orders``) in the SQL statement.
+    DuckDB handles JOINs, UNIONs, and aggregations across heterogeneous
+    sources in-process.
+
+    Parameters
+    ----------
+    registry : SourceRegistry
+        The live registry holding connected data sources.
+    engine : DuckDBEngine
+        The DuckDB federation engine (must be connected).
+    sql : str
+        Cross-source SQL with ``source_id.table_name`` references.
+    max_rows : int | None
+        Optional limit on the number of rows returned.
+
+    Returns
+    -------
+    QueryResult
+    """
+    try:
+        request = QueryRequest(
+            source_id="__cross__",
+            statement=sql,
+            max_rows=max_rows,
+        )
+        result = await engine.execute(request, registry)
+        return QueryResult(
+            columns=result.columns,
+            rows=result.rows,
+            row_count=result.row_count,
+            execution_time_ms=result.execution_time_ms,
+            source_id="__cross__",
+        )
+    except DeepFerryError:
+        raise
+    except Exception as exc:
+        raise DataSourceError(
+            code="CROSS_QUERY_FAILED",
+            message=f"Cross-source query failed: {exc}",
+        ) from exc
 
 
 async def end_scenario(scenario_id: str) -> dict[str, Any]:

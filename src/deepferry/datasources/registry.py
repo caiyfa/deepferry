@@ -26,6 +26,10 @@ from deepferry.datasources.base import DataSource
 if TYPE_CHECKING:
     from collections.abc import Coroutine
 
+    import aiosqlite
+    import httpx2
+
+    from deepferry.auth.token_manager import TokenManager
     from deepferry.config import AppConfig, SourceConfig
 
 logger = logging.getLogger(__name__)
@@ -75,16 +79,26 @@ def register_source_type(type_name: str, cls: type[DataSource]) -> None:
 # ── Factory ────────────────────────────────────────────────────────────────
 
 
-def _instantiate_source(config: SourceConfig) -> DataSource:
+def _instantiate_source(
+    config: SourceConfig,
+    token_manager: TokenManager | None = None,
+) -> DataSource:
     """Create a DataSource instance from a SourceConfig entry.
 
     Looks up the concrete class via ``register_source_type``, instantiates it
     with the source-specific config, and assigns ``source_id``.
 
+    For HTTP sources that declare two-step auth, *token_manager* is forwarded
+    so the source can obtain/cache/refresh access tokens.  Other source types
+    are instantiated with ``config`` only.
+
     Parameters
     ----------
     config : SourceConfig
         A single resolved source entry from ``AppConfig.sources``.
+    token_manager : TokenManager | None
+        Shared token manager owned by the registry.  Injected into HTTP
+        sources; ignored by sources that do not accept it.
 
     Returns
     -------
@@ -106,7 +120,10 @@ def _instantiate_source(config: SourceConfig) -> DataSource:
             suggestion=f"Ensure the module for {config.type!r} is imported "
             f"and calls register_source_type().",
         )
-    instance = cls(config)  # type: ignore[call-arg]
+    if config.type == "http" and token_manager is not None:
+        instance = cls(config, token_manager=token_manager)  # type: ignore[call-arg]
+    else:
+        instance = cls(config)  # type: ignore[call-arg]
     instance.source_id = config.id
     return instance
 
@@ -135,6 +152,9 @@ class SourceRegistry:
         self._instances: dict[str, DataSource] = {}
         self._drain_tasks: list[asyncio.Task[None]] = []
         self._config: AppConfig | None = None
+        self._token_manager: TokenManager | None = None
+        self._token_db: aiosqlite.Connection | None = None
+        self._token_http_client: httpx2.AsyncClient | None = None
 
     # ── Initial load ────────────────────────────────────────────────────
 
@@ -147,11 +167,12 @@ class SourceRegistry:
             The fully-resolved application configuration.
         """
         self._config = config
+        await self._ensure_token_manager(config)
         instances: dict[str, DataSource] = {}
         connect_tasks: list[Coroutine[None, None, None]] = []
 
         for source_cfg in config.sources:
-            instance = _instantiate_source(source_cfg)
+            instance = _instantiate_source(source_cfg, self._token_manager)
             instances[source_cfg.id] = instance
 
             async def _connect(src: DataSource) -> None:
@@ -193,6 +214,39 @@ class SourceRegistry:
             len(instances),
             ", ".join(sorted(instances)),
         )
+
+    async def _ensure_token_manager(self, config: AppConfig) -> None:
+        """Create the shared TokenManager if any HTTP source declares auth.
+
+        Idempotent: reuses an existing token manager across ``refresh()``
+        cycles so cached tokens survive hot-reloads. The shared SQLite
+        connection and httpx2 client are owned by the registry and torn down
+        in ``shutdown()``.
+        """
+        needs_auth = any(
+            src.type == "http" and isinstance(src.extra.get("auth"), dict)
+            for src in config.sources
+        )
+        if not needs_auth or self._token_manager is not None:
+            return
+
+        import os
+
+        import httpx2
+
+        from deepferry.auth.token_manager import TokenManager
+        from deepferry.core.db import get_db, init_db
+
+        db_path = os.environ.get(
+            "DEEPFERRY_DB_PATH",
+            os.path.join(os.path.expanduser("~"), ".deepferry", "deepferry.db"),
+        )
+        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+        await init_db(db_path)
+        self._token_db = await get_db(db_path)
+        self._token_http_client = httpx2.AsyncClient(timeout=30.0)
+        self._token_manager = TokenManager(self._token_db, self._token_http_client)
+        logger.info("TokenManager initialised (db=%s)", db_path)
 
     # ── Lookup ───────────────────────────────────────────────────────────
 
@@ -263,9 +317,10 @@ class SourceRegistry:
         # We need the original path — store it on first load.
         # For now we re-use the existing AppConfig.  A full implementation
         # would store the path and call load_config(path) again.
+        await self._ensure_token_manager(self._config)
         new_instances: dict[str, DataSource] = {}
         for source_cfg in self._config.sources:
-            new_instance = _instantiate_source(source_cfg)
+            new_instance = _instantiate_source(source_cfg, self._token_manager)
             await new_instance.connect()
             new_instances[source_cfg.id] = new_instance
 
@@ -350,4 +405,13 @@ class SourceRegistry:
                 logger.exception("Error disconnecting source %r during shutdown", src_id)
 
         self._instances.clear()
+
+        if self._token_http_client is not None:
+            await self._token_http_client.aclose()
+            self._token_http_client = None
+        if self._token_db is not None:
+            await self._token_db.close()
+            self._token_db = None
+        self._token_manager = None
+
         logger.info("Registry shutdown complete.")

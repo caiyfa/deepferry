@@ -1,0 +1,59 @@
+# deepferry 集成配置示例 — 财务总账
+# 将此文件内容合并到 deepferry 的 config.toml 中
+
+# ============================================================
+# Source 1: 直连 MySQL（M1 SQL 数据源验证）
+# ============================================================
+[[sources]]
+id = "finance-db"
+type = "mysql"
+name = "Finance Ledger MySQL (direct)"
+host = "127.0.0.1"
+port = 3308
+database = "finance_ledger"
+user = "finance"
+password = "finance_pass"
+
+# ============================================================
+# Source 2: 经 Java 微服务（M2 HTTP + Two-Step Auth 验证）
+# ============================================================
+[[sources]]
+id = "finance-api"
+type = "http"
+name = "Finance Ledger API (via microservice)"
+base_url = "http://localhost:8080"
+default_headers = { Accept = "application/json" }
+
+[sources.auth]
+login_url = "/auth/login"
+login_method = "POST"
+login_body = { username = "admin", password = "deepferry123" }
+token_field = "access_token"
+token_type = "bearer"
+token_ttl = 3600
+refresh_url = "/auth/refresh"
+refresh_token_field = "refresh_token"
+
+[[sources.resources]]
+name = "employees"
+path = "/api/v1/employees"
+method = "GET"
+description = "员工列表"
+
+[[sources.resources]]
+name = "invoices"
+path = "/api/v1/invoices"
+method = "GET"
+description = "增值税发票列表（含销方/购方嵌套对象，验证 parent.child 扁平化）"
+
+[[sources.resources]]
+name = "reimbursements"
+path = "/api/v1/reimbursements"
+method = "GET"
+description = "员工报销列表（嵌套 employee + invoice）"
+
+[[sources.resources]]
+name = "vouchers"
+path = "/api/v1/vouchers"
+method = "GET"
+description = "财务凭证列表（嵌套 reimb + entries 数组）"

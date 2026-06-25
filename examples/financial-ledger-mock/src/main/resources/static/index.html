@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>财务总账管理系统 - 验证控制台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- ===================== 登录视图 ===================== -->
+        <section v-if="!auth.token" class="login-wrap">
+            <div class="login-bg-grid" aria-hidden="true"></div>
+            <div class="login-bg-glow" aria-hidden="true"></div>
+            <div class="login-card">
+                <div class="login-mark">
+                    <span class="mark-glyph">¥</span>
+                </div>
+                <h1 class="login-title">财务总账管理系统</h1>
+                <p class="login-subtitle">验证控制台 · Verification Console</p>
+
+                <form @submit.prevent="login" class="login-form" autocomplete="off">
+                    <label class="field">
+                        <span class="field-label">用户名</span>
+                        <input v-model="auth.username" type="text" required autocomplete="username"
+                               placeholder="请输入用户名">
+                    </label>
+                    <label class="field">
+                        <span class="field-label">密码</span>
+                        <input v-model="auth.password" type="password" required autocomplete="current-password"
+                               placeholder="请输入密码">
+                    </label>
+                    <button type="submit" class="btn-primary btn-login" :disabled="auth.loading">
+                        <span v-if="auth.loading">登录中…</span>
+                        <span v-else>登 录</span>
+                    </button>
+                    <p v-if="auth.error" class="login-error">
+                        <strong>{{ auth.error.code }}</strong> · {{ auth.error.message }}
+                        <span v-if="auth.error.suggestion" class="login-error-tip">{{ auth.error.suggestion }}</span>
+                    </p>
+                </form>
+
+                <div class="login-hint">
+                    <span class="hint-dot"></span>
+                    预置账号 <code>admin</code> / <code>deepferry123</code>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== 数据控制台 ===================== -->
+        <section v-else class="console">
+            <!-- 顶栏 -->
+            <header class="topbar">
+                <div class="topbar-left">
+                    <span class="brand-mark">¥</span>
+                    <div class="brand-text">
+                        <span class="brand-title">财务总账</span>
+                        <span class="brand-sub">验证控制台</span>
+                    </div>
+                </div>
+                <nav class="tabs">
+                    <button v-for="t in tabs" :key="t.key"
+                            class="tab" :class="{ active: activeTab === t.key }"
+                            @click="switchTab(t.key)">
+                        <span class="tab-icon" v-html="t.icon"></span>
+                        {{ t.label }}
+                    </button>
+                </nav>
+                <div class="topbar-right">
+                    <div class="token-chip" :class="{ 'token-warn': tokenRemaining <= 60 }">
+                        <span class="token-dot"></span>
+                        <span class="token-label">Token</span>
+                        <span class="token-count">{{ formatCountdown(tokenRemaining) }}</span>
+                    </div>
+                    <div class="user-chip">
+                        <span class="user-avatar">{{ auth.username.charAt(0).toUpperCase() }}</span>
+                        <span class="user-name">{{ auth.username }}</span>
+                    </div>
+                    <button class="btn-ghost" @click="logout">退出登录</button>
+                </div>
+            </header>
+
+            <!-- 主体 -->
+            <main class="main">
+                <!-- 查询栏 -->
+                <div class="filter-bar">
+                    <div class="filter-title">
+                        <span class="filter-title-text">{{ currentTab.label }}数据</span>
+                        <span class="filter-title-sub">{{ currentTab.endpoint }}</span>
+                    </div>
+                    <div class="filter-controls">
+                        <template v-for="f in currentTab.filters" :key="f.key">
+                            <select v-if="f.type === 'select'" v-model="filters[f.key]" class="filter-input">
+                                <option value="">{{ f.placeholder }}</option>
+                                <option v-for="opt in f.options" :key="opt" :value="opt">{{ opt }}</option>
+                            </select>
+                            <input v-else v-model="filters[f.key]" type="text"
+                                   class="filter-input" :placeholder="f.placeholder">
+                        </template>
+                        <button class="btn-primary btn-query" @click="loadData(true)" :disabled="loading">
+                            <span v-if="loading">查询中…</span>
+                            <span v-else>查 询</span>
+                        </button>
+                        <button class="btn-ghost btn-reset" @click="resetFilters">重置</button>
+                    </div>
+                </div>
+
+                <!-- 错误横幅 -->
+                <div v-if="dataError" class="error-banner">
+                    <div class="error-banner-icon">!</div>
+                    <div class="error-banner-body">
+                        <div class="error-banner-code">{{ dataError.code }}</div>
+                        <div class="error-banner-msg">{{ dataError.message }}</div>
+                        <div v-if="dataError.suggestion" class="error-banner-sug">{{ dataError.suggestion }}</div>
+                    </div>
+                    <button class="error-banner-close" @click="dataError = null">×</button>
+                </div>
+
+                <!-- 表格区 -->
+                <div class="table-card">
+                    <div v-if="loading" class="state state-loading">
+                        <div class="spinner"></div>
+                        <span>正在加载{{ currentTab.label }}数据…</span>
+                    </div>
+
+                    <div v-else-if="!rows.length" class="state state-empty">
+                        <div class="empty-glyph">∅</div>
+                        <span>暂无数据</span>
+                    </div>
+
+                    <template v-else>
+                        <div class="table-scroll">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th v-for="col in currentTab.columns" :key="col.path"
+                                            :class="{ 'num-col': col.numeric }">
+                                            {{ col.label }}
+                                        </th>
+                                        <th v-if="currentTab.key === 'vouchers'" class="expand-col"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template v-for="(row, idx) in rows" :key="row.id ?? idx">
+                                        <tr :class="{ 'row-expanded': expandedId === row.id }">
+                                            <td v-for="col in currentTab.columns" :key="col.path"
+                                                :class="{ 'num-col': col.numeric }">
+                                                <span v-if="col.status" class="status-tag"
+                                                      :class="statusClass(resolvePath(row, col.path))">
+                                                    {{ resolvePath(row, col.path) }}
+                                                </span>
+                                                <span v-else-if="col.numeric" class="num">
+                                                    {{ formatNum(resolvePath(row, col.path)) }}
+                                                </span>
+                                                <span v-else>{{ resolvePath(row, col.path) || '—' }}</span>
+                                            </td>
+                                            <td v-if="currentTab.key === 'vouchers'" class="expand-col">
+                                                <button class="expand-btn"
+                                                        :class="{ open: expandedId === row.id }"
+                                                        @click="toggleExpand(row.id)">分录</button>
+                                            </td>
+                                        </tr>
+                                        <!-- 凭证分录展开行 -->
+                                        <tr v-if="currentTab.key === 'vouchers' && expandedId === row.id"
+                                            class="sub-row">
+                                            <td :colspan="currentTab.columns.length + 1" class="sub-cell">
+                                                <div class="entries-wrap">
+                                                    <div class="entries-head">
+                                                        <span class="entries-title">借贷分录</span>
+                                                        <span class="balance-chip"
+                                                              :class="isBalanced(row) ? 'balanced' : 'unbalanced'">
+                                                            <span class="balance-dot"></span>
+                                                            {{ isBalanced(row) ? '借贷平衡' : '借贷不平' }}
+                                                        </span>
+                                                    </div>
+                                                    <table class="entries-table">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>行号</th>
+                                                                <th>科目编码</th>
+                                                                <th>科目名称</th>
+                                                                <th class="num-col">借方</th>
+                                                                <th class="num-col">贷方</th>
+                                                                <th>辅助核算</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <tr v-for="e in (row.entries || [])" :key="e.lineNo">
+                                                                <td>{{ e.lineNo }}</td>
+                                                                <td><code>{{ e.accountCode }}</code></td>
+                                                                <td>{{ e.accountName }}</td>
+                                                                <td class="num-col">
+                                                                    <span class="num" :class="{ 'has-val': e.debit }">
+                                                                        {{ formatNum(e.debit) }}
+                                                                    </span>
+                                                                </td>
+                                                                <td class="num-col">
+                                                                    <span class="num" :class="{ 'has-val': e.credit }">
+                                                                        {{ formatNum(e.credit) }}
+                                                                    </span>
+                                                                </td>
+                                                                <td>{{ e.auxiliary || '—' }}</td>
+                                                            </tr>
+                                                        </tbody>
+                                                        <tfoot>
+                                                            <tr>
+                                                                <td colspan="3" class="entries-foot-label">合计</td>
+                                                                <td class="num-col num has-val">{{ formatNum(row.totalDebit) }}</td>
+                                                                <td class="num-col num has-val">{{ formatNum(row.totalCredit) }}</td>
+                                                                <td></td>
+                                                            </tr>
+                                                        </tfoot>
+                                                    </table>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="table-foot">
+                            <span class="foot-count">共 <strong>{{ total }}</strong> 条</span>
+                            <span class="foot-meta">{{ currentTab.label }} · {{ rows.length }} 条已加载</span>
+                        </div>
+                    </template>
+                </div>
+            </main>
+        </section>
+
+        <!-- ===================== Toast ===================== -->
+        <div class="toast-stack">
+            <div v-for="t in toasts" :key="t.id" class="toast" :class="'toast-' + t.type">
+                <span class="toast-icon">{{ t.type === 'error' ? '!' : (t.type === 'success' ? '✓' : 'i') }}</span>
+                <div class="toast-body">
+                    <div class="toast-title">{{ t.title }}</div>
+                    <div v-if="t.msg" class="toast-msg">{{ t.msg }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

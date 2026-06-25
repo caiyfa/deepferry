@@ -270,7 +270,7 @@ async def test_execute_syntax_error() -> None:
 
     with pytest.raises(DataSourceError) as exc_info:
         await source.execute(
-            QueryRequest(source_id="pg-1", statement="SELEC 1")
+            QueryRequest(source_id="pg-1", statement="SELECT 1 FROM")
         )
 
     assert exc_info.value.code == "QUERY_FAILED"
