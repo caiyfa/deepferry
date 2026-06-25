@@ -10,7 +10,6 @@ tests
 openspec
 design
 frontend
-README.md
 AGENTS.md
 .env
 .env.local

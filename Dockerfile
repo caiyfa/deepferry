@@ -1,10 +1,11 @@
 # ── Build stage ───────────────────────────────────────────────────────
 FROM python:3.12-slim AS builder
 
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
 RUN pip install uv
 
 WORKDIR /app
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
 RUN uv sync --no-dev
 
@@ -27,5 +28,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-ENTRYPOINT ["deepferry", "mcp-server", "--transport", "http", "--host", "0.0.0.0"]
-CMD ["--port", "8000", "--config", "/home/deepferry/config.toml"]
+ENTRYPOINT ["python", "-m", "deepferry.cli"]
+CMD ["mcp-server", "--transport", "http", "--host", "0.0.0.0", "--port", "8000", "--config", "/home/deepferry/config.toml"]

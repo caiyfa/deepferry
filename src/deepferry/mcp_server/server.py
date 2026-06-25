@@ -17,6 +17,8 @@ import json
 from typing import TYPE_CHECKING, Any
 
 import starlette.applications
+import starlette.requests
+import starlette.responses
 import starlette.routing
 from mcp import types
 from mcp.server import Server
@@ -35,8 +37,6 @@ from deepferry.mcp_server.tools import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-
-    from starlette.types import Receive, Scope, Send
 
     from deepferry.datasources.registry import SourceRegistry
 
@@ -258,39 +258,27 @@ async def run_http_server(
     host: str = "127.0.0.1",
     port: int = 8000,
 ) -> None:
-    """Start the MCP server over Streamable HTTP.
-
-    Builds a Starlette ASGI application backed by ``StreamableHTTPSessionManager``
-    and serves it via uvicorn.  Suitable for remote MCP clients or local dev
-    where stdio is not practical.
-    """
+    """Start the MCP server over Streamable HTTP."""
     import uvicorn
 
     server = create_server(registry)
     session_manager = StreamableHTTPSessionManager(app=server)
 
-    async def lifespan(  # noqa: ARG001
-        starlette_app: starlette.applications.Starlette,
-    ) -> AsyncIterator[None]:
+    async def lifespan(app: starlette.applications.Starlette) -> AsyncIterator[None]:  # noqa: ARG001
         async with session_manager.run():
             yield
 
-    async def mcp_endpoint(scope: Scope, receive: Receive, send: Send) -> None:
-        await session_manager.handle_request(scope, receive, send)
+    async def health(request: starlette.requests.Request) -> starlette.responses.JSONResponse:  # noqa: ARG001
+        return starlette.responses.JSONResponse({"status": "ok"})
 
     starlette_app = starlette.applications.Starlette(
         lifespan=lifespan,  # type: ignore[arg-type]
         routes=[
-            starlette.routing.Route("/", mcp_endpoint, methods=["GET", "POST"]),
-            starlette.routing.Route("/{path:path}", mcp_endpoint, methods=["GET", "POST"]),
+            starlette.routing.Route("/health", health, methods=["GET"]),
+            starlette.routing.Mount("/", app=session_manager.handle_request),
         ],
     )
 
-    config = uvicorn.Config(
-        starlette_app,
-        host=host,
-        port=port,
-        log_level="info",
-    )
+    config = uvicorn.Config(starlette_app, host=host, port=port, log_level="info")
     uvicorn_server = uvicorn.Server(config)
     await uvicorn_server.serve()

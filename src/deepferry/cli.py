@@ -11,6 +11,7 @@ import anyio
 from deepferry.config import load_config
 from deepferry.datasources.registry import SourceRegistry
 
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(message)s")
 logger = logging.getLogger("deepferry.cli")
 
 
@@ -78,3 +79,7 @@ async def _run_mcp_server(args: argparse.Namespace) -> None:
 
         logger.info("Starting MCP server over stdio")
         await run_stdio_server(registry)
+
+
+if __name__ == "__main__":
+    main()
