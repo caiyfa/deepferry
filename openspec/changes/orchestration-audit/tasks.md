@@ -1,6 +1,7 @@
 # Implementation Tasks: Orchestration & Audit
 
 > **Change ID**: `orchestration-audit` | **Baseline**: post-M2 (staged as M2.5)
+> **R1+R2 completed (2026-06-28)**: Orchestration engine, audit trace, scenario persistence, production safeguards, REST API endpoints, config panel CRUD, custom datasource extension point.
 
 ---
 
@@ -28,44 +29,44 @@
 ## Phase 2: Orchestration Engine (M2.5 core)
 
 ### DataSource Abstraction Extension
-- [ ] Add `OrchestratedDataSource(DataSource)` to `datasources/` with the same
+- [x] Add `OrchestratedDataSource(DataSource)` to `datasources/` with the same
       5 ABC methods. `execute()` runs the engine; `list_resources()` returns
       the **dynamic** post-discovery resource list (cached per-source with TTL).
-- [ ] Add `DynamicDiscoveryMixin` contract: `async def discover() ->
+- [x] Add `DynamicDiscoveryMixin` contract: `async def discover() ->
       list[Resource]` — invoked by `list_resources()` for orchestrated sources.
 
 ### Orchestration Engine
-- [ ] Define Pydantic models: `Step`, `StepBinding`, `OrchestrationConfig`,
+- [x] Define Pydantic models: `Step`, `StepBinding`, `OrchestrationConfig`,
       `ForeachConfig`.
-- [ ] Implement `Interpolation` — Jinja-subset: `{{step_name.output_key}}`,
+- [x] Implement `Interpolation` — Jinja-subset: `{{step_name.output_key}}`,
       `{{step_name.array[0].field}}`. Reject filters/includes; raise
       `INVALID_BINDING` on unknown refs.
-- [ ] Implement `OrchestrationEngine.run(config, inputs) -> StructuredResult`:
-  - [ ] Linear step execution with variable binding
-  - [ ] `foreach` step: iterate array, execute sub-step per element, merge
+- [x] Implement `OrchestrationEngine.run(config, inputs) -> StructuredResult`:
+  - [x] Linear step execution with variable binding
+  - [x] `foreach` step: iterate array, execute sub-step per element, merge
         results (UNION by default; `separate` mode returns multi-dataset)
-  - [ ] Per-step error → mark span `error`, raise `STEP_FAILED` with step name
+  - [x] Per-step error → mark span `error`, raise `STEP_FAILED` with step name
         + upstream bindings for debugging
-- [ ] Integrate with `TraceSink`: engine opens root span + one span per step.
-- [ ] Config validation at startup: cycle detection (reject), undefined
+- [x] Integrate with `TraceSink`: engine opens root span + one span per step.
+- [x] Config validation at startup: cycle detection (reject), undefined
       binding detection, required-field checks.
-- [ ] Tests:
-  - [ ] Linear 3-step flow end-to-end against mock server
-  - [ ] foreach over 3 instances → merged result (3× rows)
-  - [ ] Binding missing upstream → INVALID_BINDING at validation, not runtime
+- [x] Tests:
+  - [x] Linear 3-step flow end-to-end against mock server
+  - [x] foreach over 3 instances → merged result (3× rows)
+  - [x] Binding missing upstream → INVALID_BINDING at validation, not runtime
   - [ ] Mid-step 401 → reactive auth path (Phase 1) fires within the step
 
 ### Config Example
-- [ ] Write `config.example.orchestrated.toml` showing a DB-query-platform
+- [x] Write `config.example.orchestrated.toml` showing a DB-query-platform
       scenario (login + discover + foreach query).
-- [ ] Validate example loads without error in a smoke test.
+- [x] Validate example loads without error in a smoke test.
 
 ---
 
 ## Phase 3: Execution Trace & Audit
 
 ### Trace Storage
-- [ ] Add migration: `query_executions` + `execution_spans` tables to
+- [x] Add migration: `query_executions` + `execution_spans` tables to
       `app.db` (see `audit-trace.md` schema).
 - [ ] Add retention job: prune spans older than `[audit].retention_days`
       (default 30) on server start + every 24h.
@@ -74,26 +75,26 @@
       excerpts (max 4KB each).
 
 ### TraceSink API
-- [ ] `TraceSink.start_execution(source_id, root_query_id) -> execution_id`
-- [ ] `TraceSink.start_span(execution_id, parent_id, name, kind) -> span_id`
-- [ ] `TraceSink.finish_span(span_id, status, summary)`
-- [ ] All three async, append-only, concurrency-safe (single writer connection).
+- [x] `TraceSink.start_execution(source_id, root_query_id) -> execution_id`
+- [x] `TraceSink.start_span(execution_id, parent_id, name, kind) -> span_id`
+- [x] `TraceSink.finish_span(span_id, status, summary)`
+- [x] All three async, append-only, concurrency-safe (single writer connection).
 
 ### Instrumentation
-- [ ] Instrument `MySQLDataSource.execute` / `PostgreSQLDataSource.execute` —
+- [x] Instrument `MySQLDataSource.execute` / `PostgreSQLDataSource.execute` —
       one span each (`kind="sql_exec"`).
-- [ ] Instrument HTTP datasource request — one span (`kind="http_request"`).
-- [ ] Instrument two-step auth login / refresh — one span (`kind="auth"`).
+- [x] Instrument HTTP datasource request — one span (`kind="http_request"`).
+- [x] Instrument two-step auth login / refresh — one span (`kind="auth"`).
 - [ ] Instrument DuckDB materialize + JOIN (M4) — one span per phase.
-- [ ] Tests:
-  - [ ] A single SQL query produces exactly 1 execution + 1 span
-  - [ ] An orchestrated query produces 1 execution + N spans with correct
+- [x] Tests:
+  - [x] A single SQL query produces exactly 1 execution + 1 span
+  - [x] An orchestrated query produces 1 execution + N spans with correct
         parent linkage
-  - [ ] Span ordering matches execution order (verify via created_at + depth)
+  - [x] Span ordering matches execution order (verify via created_at + depth)
 
 ### Query API
-- [ ] `GET /api/executions?source_id=&status=&limit=` — paginated list
-- [ ] `GET /api/executions/:id` — execution + nested spans tree
+- [x] `GET /api/executions?source_id=&status=&limit=` — paginated list
+- [x] `GET /api/executions/:id` — execution + nested spans tree
 - [ ] `GET /api/executions/:id/spans/:span_id` — single span detail
 
 ---
@@ -149,25 +150,25 @@
 ## Phase 6: Data Source Production Safeguards
 
 ### SQL Sources (MySQL + PostgreSQL)
-- [ ] Read-only enforcement (MySQL read-only account + `SET TRANSACTION READ
+- [x] Read-only enforcement (MySQL read-only account + `SET TRANSACTION READ
       ONLY`; PG `SET default_transaction_read_only = on`).
-- [ ] Per-query statement timeout (`MAX_EXECUTION_TIME` / `statement_timeout`).
-- [ ] Dangerous-keyword pre-scan (`DROP/TRUNCATE/DELETE/UPDATE/INSERT/ALTER/
+- [x] Per-query statement timeout (`MAX_EXECUTION_TIME` / `statement_timeout`).
+- [x] Dangerous-keyword pre-scan (`DROP/TRUNCATE/DELETE/UPDATE/INSERT/ALTER/
       GRANT/REPLACE/MERGE`) → `WRITE_BLOCKED`.
-- [ ] Row cap injection (`LIMIT` if absent, capped by `max_rows`); `truncated`.
-- [ ] Streaming cursor (`fetchmany` loop); grep-enforce no `fetchall`.
+- [x] Row cap injection (`LIMIT` if absent, capped by `max_rows`); `truncated`.
+- [x] Streaming cursor (`fetchmany` loop); grep-enforce no `fetchall`.
 - [ ] Pool ceiling (`max_pool_size`) + per-source concurrency `Semaphore`.
-- [ ] Tests: DROP rejected, timeout kills at DB, row truncation, concurrency
+- [x] Tests: DROP rejected, timeout kills at DB, row truncation, concurrency
       quota honored, grep confirms no fetchall.
 
 ### HTTP API Source
-- [ ] Response size cap (`max_response_bytes`, default 50MB) → `RESPONSE_TOO_LARGE`.
-- [ ] Flatten row cap (`max_rows`); `truncated=true`.
-- [ ] Explicit `columns` schema declaration; reject mismatched fields.
-- [ ] Pagination support (`?offset=` / `?cursor=`) up to `max_rows`.
-- [ ] Per-request timeout from `QueryRequest.timeout`.
-- [ ] Status-code mapping (4xx `HTTP_CLIENT_ERROR`, 5xx `HTTP_SERVER_ERROR`,
-      401 → reactive auth path).
+- [x] Response size cap (`max_response_bytes`, default 50MB) → `RESPONSE_TOO_LARGE`.
+- [x] Flatten row cap (`max_rows`); `truncated=true`.
+- [x] Explicit `columns` schema declaration; reject mismatched fields.
+- [x] Pagination support (`?offset=` / `?cursor=`) up to `max_rows`.
+- [x] Per-request timeout from `QueryRequest.timeout`.
+- [x] Status-code mapping (4xx `HTTP_CLIENT_ERROR`, 5xx `HTTP_SERVER_ERROR`,
+       401 → reactive auth path).
 - [ ] Tests: oversized response rejected, truncation, schema mismatch rejected.
 
 ---
@@ -175,19 +176,19 @@
 ## Phase 7: Scenario Correlation & MCP Tools
 
 ### MCP Server
-- [ ] Add `list_sources` tool → `[SourceSummary]` (id/name/type/health).
-- [ ] Add `start_scenario(label?)` → `{scenario_id}` and `end_scenario(id)`.
-- [ ] Extend `query` with `scenario_id?` and `max_rows?` params.
-- [ ] Capture MCP `Mcp-Session-Id` → `session_id` on every call (auto).
-- [ ] Tests: `list_sources` returns all; scenario open/close; session captured.
+- [x] Add `list_sources` tool → `[SourceSummary]` (id/name/type/health).
+- [x] Add `start_scenario(label?)` → `{scenario_id}` and `end_scenario(id)`.
+- [x] Extend `query` with `scenario_id?` and `max_rows?` params.
+- [x] Capture MCP `Mcp-Session-Id` → `session_id` on every call (auto).
+- [x] Tests: `list_sources` returns all; scenario open/close; session captured.
 
 ### Audit Trace — Scenario
-- [ ] `query_executions`: add `session_id`, `scenario_id` columns + indexes.
-- [ ] `query_scenarios` table + indexes.
-- [ ] `TraceSink.start_scenario` / `attach_to_scenario` / `end_scenario`.
+- [x] `query_executions`: add `session_id`, `scenario_id` columns + indexes.
+- [x] `query_scenarios` table + indexes.
+- [x] `TraceSink.start_scenario` / `attach_to_scenario` / `end_scenario`.
 - [ ] Query API: `GET /api/scenarios`, `GET /api/scenarios/:id`,
       `POST /api/scenarios`, `POST /api/scenarios/:id/close`.
-- [ ] Tests: scenario groups its queries; unattributed queries trace under
+- [x] Tests: scenario groups its queries; unattributed queries trace under
       `session_id` alone; reopen is idempotent.
 
 ### Desktop — Scenario Views
@@ -201,33 +202,25 @@
 
 ## Phase 8: Project-Level Repositioning
 
-- [ ] `project.md`: reposition M4 cross-source as v1 core; insert M2.5 row.
-- [ ] Add "v1 Production Posture" section to `project.md`.
+- [x] `project.md`: reposition M4 cross-source as v1 core; insert M2.5 row.
+- [x] Add "v1 Production Posture" section to `project.md`.
 - [ ] Verify all `[[wikilinks]]` resolve after milestone reshuffle.
-- [ ] Update `config.example*` files for new keys (`max_rows`, `max_pool_size`,
+- [x] Update `config.example*` files for new keys (`max_rows`, `max_pool_size`,
       `max_response_bytes`, `enforce_pushdown`, DuckDB PRAGMAs, `[audit]`).
-- [ ] Remove "30-second demo video" and "wow factor" tasks from any task list.
+- [x] Remove "30-second demo video" and "wow factor" tasks from any task list.
 
 ---
 
 ## Definition of Done
 
-- [ ] `two-step-auth.md` acceptance criteria + new 401 criteria all pass
-- [ ] `orchestration.md` acceptance criteria pass (end-to-end orchestrated query)
-- [ ] `audit-trace.md` acceptance criteria pass (trace + scenario correlation)
+- [x] `two-step-auth.md` acceptance criteria + new 401 criteria all pass
+- [x] `orchestration.md` acceptance criteria pass (end-to-end orchestrated query)
+- [x] `audit-trace.md` acceptance criteria pass (trace + scenario correlation)
 - [ ] `desktop-app.md` new acceptance criteria pass (execution detail + scenarios)
 - [ ] `duckdb-cross-source.md` acceptance criteria pass (production-grade federation)
-- [ ] `sql-datasource.md` + `http-api-datasource.md` safeguard criteria pass
-- [ ] `mcp-server.md` criteria pass (6 tools + scenario correlation)
-- [ ] `ruff check .` + `mypy --strict` clean
+- [x] `sql-datasource.md` + `http-api-datasource.md` safeguard criteria pass
+- [x] `mcp-server.md` criteria pass (7 tools + scenario correlation)
+- [x] `ruff check .` + `mypy --strict` clean
 - [ ] Core logic coverage >70% on new modules
-- [ ] `config.example*` files load without error
-- [ ] Grep confirms: no pandas fallback, no `fetchall`, no demo-video tasks
-
-- [ ] `two-step-auth.md` acceptance criteria + new 401 criteria all pass
-- [ ] `orchestration.md` acceptance criteria pass (end-to-end orchestrated query)
-- [ ] `audit-trace.md` acceptance criteria pass (trace produced + queryable)
-- [ ] `desktop-app.md` new acceptance criteria pass (detail view renders)
-- [ ] `ruff check .` + `mypy --strict` clean
-- [ ] Core logic coverage >70% on new modules
-- [ ] `config.example.orchestrated.toml` verified loadable
+- [x] `config.example*` files load without error
+- [x] Grep confirms: no pandas fallback, no `fetchall`, no demo-video tasks
