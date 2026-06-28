@@ -25,6 +25,7 @@ from deepferry.datasources.base import DataSource
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
+    from pathlib import Path
 
     import aiosqlite
     import httpx2
@@ -82,6 +83,7 @@ def register_source_type(type_name: str, cls: type[DataSource]) -> None:
 def _instantiate_source(
     config: SourceConfig,
     token_manager: TokenManager | None = None,
+    registry: SourceRegistry | None = None,
 ) -> DataSource:
     """Create a DataSource instance from a SourceConfig entry.
 
@@ -89,8 +91,11 @@ def _instantiate_source(
     with the source-specific config, and assigns ``source_id``.
 
     For HTTP sources that declare two-step auth, *token_manager* is forwarded
-    so the source can obtain/cache/refresh access tokens.  Other source types
-    are instantiated with ``config`` only.
+    so the source can obtain/cache/refresh access tokens.  For custom sources
+    (``type`` starts with ``"custom:"``), *registry* and its shared
+    ``http_client`` are forwarded so the implementation can resolve composed
+    sources by id and issue HTTP calls.  Other source types are instantiated
+    with ``config`` only.
 
     Parameters
     ----------
@@ -99,6 +104,10 @@ def _instantiate_source(
     token_manager : TokenManager | None
         Shared token manager owned by the registry.  Injected into HTTP
         sources; ignored by sources that do not accept it.
+    registry : SourceRegistry | None
+        Back-reference to the owning registry.  Injected into custom sources
+        so they can resolve composed sources via ``registry.get(id)``; ignored
+        by sources that do not accept it.
 
     Returns
     -------
@@ -120,7 +129,21 @@ def _instantiate_source(
             suggestion=f"Ensure the module for {config.type!r} is imported "
             f"and calls register_source_type().",
         )
-    if config.type == "http" and token_manager is not None:
+
+    # Custom sources receive shared dependencies via constructor injection:
+    # the shared http_client (same one used by TokenManager), a registry
+    # back-reference for resolving composed sources, and a trace sink when one
+    # is available.  The registry does not yet own a TraceSink, so None is
+    # forwarded for now.
+    if config.type.startswith("custom:"):
+        shared_http_client = registry._token_http_client if registry is not None else None
+        instance = cls(  # type: ignore[call-arg]
+            config=config,
+            http_client=shared_http_client,
+            registry=registry,
+            trace_sink=None,
+        )
+    elif config.type == "http" and token_manager is not None:
         instance = cls(config, token_manager=token_manager)  # type: ignore[call-arg]
     else:
         instance = cls(config)  # type: ignore[call-arg]
@@ -152,27 +175,38 @@ class SourceRegistry:
         self._instances: dict[str, DataSource] = {}
         self._drain_tasks: list[asyncio.Task[None]] = []
         self._config: AppConfig | None = None
+        self._config_path: Path | None = None
         self._token_manager: TokenManager | None = None
         self._token_db: aiosqlite.Connection | None = None
         self._token_http_client: httpx2.AsyncClient | None = None
 
     # ── Initial load ────────────────────────────────────────────────────
 
-    async def load_from_config(self, config: AppConfig) -> None:
+    async def load_from_config(
+        self, config: AppConfig, config_path: Path | None = None
+    ) -> None:
         """Instantiate and connect all sources declared in *config*.
 
         Parameters
         ----------
         config : AppConfig
             The fully-resolved application configuration.
+        config_path : Path | None
+            Optional filesystem path to ``config.toml``.  When provided, it is
+            remembered so that ``refresh()`` can re-parse the file on disk and
+            pick up external edits (manual edits or REST API writes).
         """
+        if config_path is not None:
+            self._config_path = config_path
         self._config = config
         await self._ensure_token_manager(config)
         instances: dict[str, DataSource] = {}
         connect_tasks: list[Coroutine[None, None, None]] = []
 
         for source_cfg in config.sources:
-            instance = _instantiate_source(source_cfg, self._token_manager)
+            instance = _instantiate_source(
+                source_cfg, self._token_manager, registry=self
+            )
             instances[source_cfg.id] = instance
 
             async def _connect(src: DataSource) -> None:
@@ -306,21 +340,32 @@ class SourceRegistry:
         disconnects removed sources, then swaps the internal pointer.
         In-flight queries on old instances are undisturbed.
 
+        If ``config_path`` was recorded by ``load_from_config()`` or set
+        explicitly, the file is re-parsed from disk first — so this method
+        picks up both REST-API-driven writes (``POST /api/config/sources``)
+        and manual edits to ``config.toml`` (triggered via
+        ``POST /api/config/reload``).
+
         If the config path is not known (registry was not loaded via
-        ``load_from_config``), this is a no-op.
+        ``load_from_config``) and no config has been loaded, this is a no-op.
         """
+        if self._config_path is not None:
+            # Re-parse config.toml to pick up external changes (manual edits
+            # or REST writes).  Local import avoids a module-level dependency
+            # cycle: deepferry.config imports only deepferry.core.errors.
+            from deepferry.config import load_config
+
+            self._config = load_config(self._config_path)
+
         if self._config is None:
             logger.warning("refresh() called but no config has been loaded — skipping.")
             return
-
-        # Re-parse config.toml to pick up external changes.
-        # We need the original path — store it on first load.
-        # For now we re-use the existing AppConfig.  A full implementation
-        # would store the path and call load_config(path) again.
         await self._ensure_token_manager(self._config)
         new_instances: dict[str, DataSource] = {}
         for source_cfg in self._config.sources:
-            new_instance = _instantiate_source(source_cfg, self._token_manager)
+            new_instance = _instantiate_source(
+                source_cfg, self._token_manager, registry=self
+            )
             await new_instance.connect()
             new_instances[source_cfg.id] = new_instance
 

@@ -64,7 +64,7 @@ async def _run_mcp_server(args: argparse.Namespace) -> None:
 
     config = load_config(args.config)
     registry = SourceRegistry()
-    await registry.load_from_config(config)
+    await registry.load_from_config(config, config_path=args.config)
 
     from deepferry.engine.duckdb import DuckDBEngine
 
@@ -80,7 +80,13 @@ async def _run_mcp_server(args: argparse.Namespace) -> None:
                 args.host,
                 args.port,
             )
-            await run_http_server(registry, host=args.host, port=args.port, engine=engine)
+            await run_http_server(
+                registry,
+                host=args.host,
+                port=args.port,
+                engine=engine,
+                config_path=args.config,
+            )
         else:
             from deepferry.mcp_server.server import run_stdio_server
 

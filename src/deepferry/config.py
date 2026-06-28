@@ -16,6 +16,7 @@ Design decisions
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import tomllib
@@ -149,7 +150,15 @@ _REQUIRED_FIELDS: dict[str, set[str]] = {
 
 
 def _validate_source(source: SourceConfig) -> None:
-    """Check that a source config has all required fields for its type."""
+    """Check that a source config has all required fields for its type.
+
+    Custom source types (``type`` starts with ``"custom:"``) perform their own
+    validation — they have no universal required fields, so this function is a
+    no-op for them.  Built-in types are checked against ``_REQUIRED_FIELDS``.
+    """
+    # Custom sources own their validation — no universal required fields.
+    if source.type.startswith("custom:"):
+        return
     required = _REQUIRED_FIELDS.get(source.type)
     if required is None:
         # Unknown source type — defer validation to the plugin that handles it.
@@ -269,3 +278,290 @@ def load_config(path: str | Path) -> AppConfig:
         sources.append(sc)
 
     return AppConfig(sources=sources, server=server)
+
+
+# ── TOML write helpers ───────────────────────────────────────────────────
+#
+# These functions implement hot-reload-friendly mutation of ``config.toml`` on
+# disk.  They deliberately avoid round-tripping through ``tomllib`` (which is
+# parse-only and would discard comments, blank lines, and ordering) — instead
+# they perform manual text manipulation that preserves the rest of the file
+# verbatim.
+#
+# A ``[[sources]]`` block extends from its header line through any sub-tables
+# (``[sources.auth]``, ``[[sources.resources]]``, ``[[sources.steps]]`` …) up
+# to the next ``[[sources]]`` header, any other top-level section
+# (e.g. ``[server]``), or EOF.
+
+
+_ID_LINE_RE = re.compile(r'^\s*id\s*=\s*"([^"]*)"')
+
+
+def _section_path(stripped: str) -> str | None:
+    """Return the dotted path of a TOML section header line, else ``None``.
+
+    Examples
+    --------
+    >>> _section_path("[[sources]]")
+    'sources'
+    >>> _section_path("[sources.auth]")
+    'sources.auth'
+    >>> _section_path("[server]")
+    'server'
+    >>> _section_path("host = \"x\"")
+    None
+    """
+    if stripped.startswith("[[") and stripped.endswith("]]"):
+        return stripped[2:-2].strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        return stripped[1:-1].strip()
+    return None
+
+
+def _ends_source_block(path: str) -> bool:
+    """Whether encountering section *path* terminates the current source block.
+
+    Sub-tables of the current source (``sources.auth``, ``sources.resources``,
+    ``sources.steps`` …) do NOT terminate the block — they belong to it.
+    Everything else (a new ``sources`` header, ``server``, or any unrelated
+    top-level table) does.
+    """
+    if path == "sources":
+        return True
+    return not path.startswith("sources.")
+
+
+def _parse_source_blocks(lines: list[str]) -> list[dict[str, Any]]:
+    """Parse a TOML file's lines into ``[[sources]]`` block descriptors.
+
+    Each descriptor is::
+
+        {"id": str | None, "start": int, "end": int}
+
+    where ``start`` is the index of the ``[[sources]]`` header line and
+    ``end`` is the exclusive index just past the block's last line (including
+    any sub-tables).  ``id`` is extracted from the ``id = "..."`` line; if the
+    block is malformed and lacks one, ``id`` is ``None``.
+    """
+    blocks: list[dict[str, Any]] = []
+    current_start: int | None = None
+    current_id: str | None = None
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        path = _section_path(stripped)
+        if path is not None:
+            if current_start is not None and _ends_source_block(path):
+                blocks.append(
+                    {"id": current_id, "start": current_start, "end": i}
+                )
+                current_start = None
+                current_id = None
+            if path == "sources":
+                current_start = i
+                current_id = None
+        elif current_start is not None and current_id is None:
+            m = _ID_LINE_RE.match(line)
+            if m:
+                current_id = m.group(1)
+
+    if current_start is not None:
+        blocks.append(
+            {"id": current_id, "start": current_start, "end": len(lines)}
+        )
+    return blocks
+
+
+def _format_toml_value(value: Any) -> str:
+    """Serialise a scalar value as a TOML rvalue.
+
+    Supports ``str``, ``int``, ``float``, and ``bool``.  Strings are encoded
+    via ``json.dumps`` which produces valid TOML basic strings (double-quoted
+    with proper escaping).  Other types raise ``ValueError``.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    raise ValueError(
+        f"Cannot serialise value of type {type(value).__name__} to TOML."
+    )
+
+
+def _format_source_block(source: SourceConfig) -> list[str]:
+    """Build the list of text lines for a ``[[sources]]`` block.
+
+    The block is emitted with a leading blank line for visual separation and
+    contains only non-``None`` top-level fields plus any *scalar* values from
+    ``source.extra`` (nested dicts/lists are skipped — they require inline
+    table / array-of-tables syntax that is not currently exposed via the
+    config CRUD API).
+    """
+    lines = ["", "[[sources]]"]
+    lines.append(f"id = {_format_toml_value(source.id)}")
+    lines.append(f"type = {_format_toml_value(source.type)}")
+    if source.name is not None:
+        lines.append(f"name = {_format_toml_value(source.name)}")
+    if source.host is not None:
+        lines.append(f"host = {_format_toml_value(source.host)}")
+    if source.port is not None:
+        lines.append(f"port = {_format_toml_value(source.port)}")
+    if source.database is not None:
+        lines.append(f"database = {_format_toml_value(source.database)}")
+    if source.user is not None:
+        lines.append(f"user = {_format_toml_value(source.user)}")
+    if source.password is not None:
+        lines.append(f"password = {_format_toml_value(source.password)}")
+    if source.base_url is not None:
+        lines.append(f"base_url = {_format_toml_value(source.base_url)}")
+    for key, value in source.extra.items():
+        if isinstance(value, str | int | float | bool):
+            lines.append(f"{key} = {_format_toml_value(value)}")
+    return lines
+
+
+def _write_lines(path: Path, lines: list[str]) -> None:
+    """Join *lines* with newlines and write atomically to *path*."""
+    text = "\n".join(lines)
+    if not text.endswith("\n"):
+        text += "\n"
+    path.write_text(text, encoding="utf-8")
+
+
+def write_source_to_config(path: Path, source: SourceConfig) -> None:
+    """Append a new ``[[sources]]`` block to *path*'s config.toml.
+
+    The block is inserted immediately after the last existing source block so
+    that all ``[[sources]]`` entries stay grouped together.  If the file has
+    no sources yet, the block is appended at the end of the file.  Existing
+    content (including comments and blank lines) is preserved verbatim.
+
+    Parameters
+    ----------
+    path : Path
+        Filesystem path to ``config.toml``.
+    source : SourceConfig
+        The source definition to write.
+
+    Raises
+    ------
+    ConfigError
+        When the file cannot be read.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(
+            code="READ_ERROR",
+            message=f"Cannot read {path}: {exc}",
+        ) from exc
+
+    lines = text.splitlines()
+    blocks = _parse_source_blocks(lines)
+    new_block = _format_source_block(source)
+
+    if blocks:
+        insert_at = blocks[-1]["end"]
+    else:
+        # No existing sources — append at end, dropping trailing blank lines.
+        insert_at = len(lines)
+        while insert_at > 0 and lines[insert_at - 1].strip() == "":
+            insert_at -= 1
+
+    new_lines = lines[:insert_at] + new_block + lines[insert_at:]
+    _write_lines(path, new_lines)
+
+
+def update_source_in_config(
+    path: Path, source_id: str, source: SourceConfig
+) -> None:
+    """Replace the ``[[sources]]`` block whose ``id`` matches *source_id*.
+
+    The matched block (including any of its sub-tables) is removed and the
+    freshly-formatted block from *source* is written in its place.  All other
+    content is preserved verbatim.
+
+    Parameters
+    ----------
+    path : Path
+        Filesystem path to ``config.toml``.
+    source_id : str
+        The ``id`` of the block to replace.
+    source : SourceConfig
+        The new source definition.  Its ``id`` field is written verbatim — to
+        rename a source, also pass the new ``source_id``.
+
+    Raises
+    ------
+    ValueError
+        When no block with ``id == source_id`` exists.
+    ConfigError
+        When the file cannot be read.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(
+            code="READ_ERROR",
+            message=f"Cannot read {path}: {exc}",
+        ) from exc
+
+    lines = text.splitlines()
+    blocks = _parse_source_blocks(lines)
+    target = next((b for b in blocks if b["id"] == source_id), None)
+    if target is None:
+        raise ValueError(
+            f"Source {source_id!r} not found in {path} — cannot update."
+        )
+
+    new_block = _format_source_block(source)
+    new_lines = lines[: target["start"]] + new_block + lines[target["end"]:]
+    _write_lines(path, new_lines)
+
+
+def remove_source_from_config(path: Path, source_id: str) -> None:
+    """Delete the ``[[sources]]`` block whose ``id`` matches *source_id*.
+
+    The matched block (including any of its sub-tables and any immediately
+    preceding blank line used for visual separation) is removed.  All other
+    content is preserved verbatim.
+
+    Parameters
+    ----------
+    path : Path
+        Filesystem path to ``config.toml``.
+    source_id : str
+        The ``id`` of the block to remove.
+
+    Raises
+    ------
+    ValueError
+        When no block with ``id == source_id`` exists.
+    ConfigError
+        When the file cannot be read.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(
+            code="READ_ERROR",
+            message=f"Cannot read {path}: {exc}",
+        ) from exc
+
+    lines = text.splitlines()
+    blocks = _parse_source_blocks(lines)
+    target = next((b for b in blocks if b["id"] == source_id), None)
+    if target is None:
+        raise ValueError(
+            f"Source {source_id!r} not found in {path} — cannot remove."
+        )
+
+    start = target["start"]
+    # Also drop a single immediately-preceding blank line (visual separator).
+    if start > 0 and lines[start - 1].strip() == "":
+        start -= 1
+
+    new_lines = lines[:start] + lines[target["end"]:]
+    _write_lines(path, new_lines)
