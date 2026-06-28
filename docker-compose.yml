@@ -1,6 +1,11 @@
+name: deepferry
+
 services:
   deepferry:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/caiyfa/deepferry:latest
     ports:
       - "8000:8000"
     volumes:
@@ -17,9 +22,21 @@ services:
       - POSTGRES_USER
       - POSTGRES_PASSWORD
       - POSTGRES_DATABASE
+      - DEEPFERRY_DB_PATH
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      org.opencontainers.image.source: "https://github.com/caiyfa/deepferry"
+      org.opencontainers.image.description: "MCP-based universal data access layer for LLM agents"
+    networks:
+      - deepferry
 
-  # Optional: include MySQL for development
+  # ── Optional: MySQL for development ──────────────────────────────────
   mysql:
     image: mysql:8
     ports:
@@ -29,9 +46,17 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-deepferry}
     volumes:
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     profiles: [full]
+    networks:
+      - deepferry
 
-  # Optional: include PostgreSQL for development
+  # ── Optional: PostgreSQL for development ─────────────────────────────
   postgres:
     image: postgres:16
     ports:
@@ -41,7 +66,19 @@ services:
       POSTGRES_DB: ${POSTGRES_DATABASE:-deepferry}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     profiles: [full]
+    networks:
+      - deepferry
+
+networks:
+  deepferry:
+    driver: bridge
 
 volumes:
   deepferry_data:

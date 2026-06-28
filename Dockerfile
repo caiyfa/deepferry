@@ -1,7 +1,7 @@
 # ── Build stage ───────────────────────────────────────────────────────
 FROM python:3.12-slim AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing gcc libc6-dev && rm -rf /var/lib/apt/lists/*
 RUN pip install uv
 
 WORKDIR /app

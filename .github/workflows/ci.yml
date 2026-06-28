@@ -65,3 +65,48 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: testpass
           POSTGRES_DATABASE: testdb
+
+  # ── Verify Docker image builds (no push) ───────────────────────────────
+  docker-build:
+    needs: lint-and-typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: deepferry:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create minimal config for health check
+        run: |
+          cat > /tmp/config.toml << 'EOF'
+          [server]
+          host = "0.0.0.0"
+          port = 8000
+          EOF
+
+      - name: Verify health endpoint
+        run: |
+          docker run --rm -d --name deepferry-ci \
+            -v /tmp/config.toml:/home/deepferry/config.toml:ro \
+            deepferry:ci-test
+          # Wait for startup
+          for i in $(seq 1 15); do
+            if docker exec deepferry-ci python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" 2>/dev/null; then
+              echo "Health check passed"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Health check failed after 30s"
+          docker logs deepferry-ci
+          exit 1
