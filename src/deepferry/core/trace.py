@@ -12,10 +12,14 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from enum import StrEnum
+from typing import TYPE_CHECKING, Any
 
-import aiosqlite
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    import aiosqlite
 
 
 # ── Enums ───────────────────────────────────────────────────────────────
@@ -176,6 +180,25 @@ class TraceSink:
             """
             CREATE INDEX IF NOT EXISTS idx_spans_parent
                 ON trace_spans(parent_span_id)
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS query_scenarios (
+                id           TEXT PRIMARY KEY,
+                session_id   TEXT NOT NULL,
+                label        TEXT,
+                status       TEXT NOT NULL DEFAULT 'open',
+                started_at   INTEGER NOT NULL,
+                finished_at  INTEGER,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scenarios_session
+                ON query_scenarios(session_id, started_at)
             """
         )
         await db.commit()
@@ -481,3 +504,168 @@ class TraceSink:
             )
             for row in rows
         ]
+
+    # ── scenario lifecycle ───────────────────────────────────────────
+
+    async def start_scenario(
+        self, session_id: str, label: str | None = None
+    ) -> str:
+        """Open a new investigation scenario and persist it.
+
+        Inserts a row into ``query_scenarios`` with ``status='open'`` and
+        returns the newly generated scenario UUID.
+
+        Parameters
+        ----------
+        session_id : str
+            The MCP session ID this scenario belongs to.  Used to group
+            scenarios per agent session.
+        label : str | None
+            Optional human-readable label for the scenario.
+
+        Returns
+        -------
+        str
+            The new scenario UUID (also the table primary key).
+        """
+        scenario_id = str(uuid.uuid4())
+        started_at = int(time.time() * 1000)
+        await self._db.execute(
+            "INSERT INTO query_scenarios "
+            "(id, session_id, label, status, started_at) "
+            "VALUES (?, ?, ?, 'open', ?)",
+            (scenario_id, session_id, label, started_at),
+        )
+        await self._db.commit()
+        return scenario_id
+
+    async def end_scenario(self, scenario_id: str) -> None:
+        """Mark a scenario as closed.
+
+        Sets ``finished_at`` to the current unix-ms timestamp and
+        ``status='closed'``.  Silent no-op if the scenario does not exist
+        (the UPDATE matches zero rows).
+
+        Parameters
+        ----------
+        scenario_id : str
+            The scenario UUID to close.
+        """
+        now_ms = int(time.time() * 1000)
+        await self._db.execute(
+            "UPDATE query_scenarios "
+            "SET finished_at = ?, status = 'closed' "
+            "WHERE id = ?",
+            (now_ms, scenario_id),
+        )
+        await self._db.commit()
+
+    async def get_scenario(self, scenario_id: str) -> dict[str, Any] | None:
+        """Fetch a scenario with its linked execution count.
+
+        Joins ``query_scenarios`` against ``trace_executions`` to compute
+        how many executions are attached to the scenario.
+
+        Parameters
+        ----------
+        scenario_id : str
+            The scenario UUID to fetch.
+
+        Returns
+        -------
+        dict[str, Any] | None
+            Scenario fields plus ``execution_count``, or ``None`` if the
+            scenario does not exist.
+        """
+        cursor = await self._db.execute(
+            "SELECT s.id, s.session_id, s.label, s.status, s.started_at, "
+            "s.finished_at, s.created_at, COUNT(e.id) AS execution_count "
+            "FROM query_scenarios s "
+            "LEFT JOIN trace_executions e ON e.scenario_id = s.id "
+            "WHERE s.id = ? "
+            "GROUP BY s.id",
+            (scenario_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "session_id": row[1],
+            "label": row[2],
+            "status": row[3],
+            "started_at": row[4],
+            "finished_at": row[5],
+            "created_at": row[6],
+            "execution_count": row[7],
+        }
+
+    async def list_scenarios(
+        self, session_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """List recent scenarios, optionally filtered by session.
+
+        Parameters
+        ----------
+        session_id : str | None
+            Optional MCP session filter.  When ``None`` (default), scenarios
+            from all sessions are returned.
+        limit : int
+            Maximum number of scenarios to return (default 50).
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            Scenarios in descending ``started_at`` order, each enriched
+            with an ``execution_count`` from a LEFT JOIN against
+            ``trace_executions``.
+        """
+        sql = (
+            "SELECT s.id, s.session_id, s.label, s.status, s.started_at, "
+            "s.finished_at, s.created_at, COUNT(e.id) AS execution_count "
+            "FROM query_scenarios s "
+            "LEFT JOIN trace_executions e ON e.scenario_id = s.id "
+            + ("WHERE s.session_id = ? " if session_id is not None else "")
+            + "GROUP BY s.id "
+            "ORDER BY s.started_at DESC, s.id DESC LIMIT ?"
+        )
+        if session_id is not None:
+            cursor = await self._db.execute(sql, (session_id, limit))
+        else:
+            cursor = await self._db.execute(sql, (limit,))
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": row[0],
+                "session_id": row[1],
+                "label": row[2],
+                "status": row[3],
+                "started_at": row[4],
+                "finished_at": row[5],
+                "created_at": row[6],
+                "execution_count": row[7],
+            }
+            for row in rows
+        ]
+
+    async def attach_to_scenario(
+        self, execution_id: int, scenario_id: str
+    ) -> None:
+        """Link an existing execution to a scenario.
+
+        Updates ``trace_executions.scenario_id`` in-place.  Typically called
+        after a query succeeds to associate its execution with the active
+        scenario.  Silent no-op if the execution row does not exist.
+
+        Parameters
+        ----------
+        execution_id : int
+            The trace execution id to link.
+        scenario_id : str
+            The target scenario UUID.
+        """
+        await self._db.execute(
+            "UPDATE trace_executions SET scenario_id = ? WHERE id = ?",
+            (scenario_id, execution_id),
+        )
+        await self._db.commit()

@@ -63,6 +63,100 @@ async def init_db(db_path: str) -> None:
             """
         )
 
+        # ── trace tables ──────────────────────────────────────────────
+        # trace_executions — one row per DataSource.execute() call
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS trace_executions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                root_query_id   INTEGER,
+                source_id       TEXT NOT NULL,
+                scenario_id     TEXT,
+                session_id      TEXT,
+                started_at      INTEGER NOT NULL,
+                finished_at     INTEGER,
+                status          TEXT NOT NULL DEFAULT 'ok'
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_executions_source
+                ON trace_executions(source_id, started_at)
+            """
+        )
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_executions_status
+                ON trace_executions(status)
+            """
+        )
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_executions_scenario
+                ON trace_executions(scenario_id)
+            """
+        )
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_executions_session
+                ON trace_executions(session_id)
+            """
+        )
+
+        # trace_spans — individual instrumentation points within an execution
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS trace_spans (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                execution_id    INTEGER NOT NULL,
+                parent_span_id  INTEGER,
+                span_kind       TEXT NOT NULL,
+                span_name       TEXT NOT NULL,
+                source_id       TEXT NOT NULL,
+                started_at      INTEGER NOT NULL,
+                finished_at     INTEGER,
+                status          TEXT NOT NULL DEFAULT 'ok',
+                attributes      TEXT NOT NULL DEFAULT '{}',
+                FOREIGN KEY (execution_id) REFERENCES trace_executions(id),
+                FOREIGN KEY (parent_span_id)  REFERENCES trace_spans(id)
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_spans_execution
+                ON trace_spans(execution_id)
+            """
+        )
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_spans_parent
+                ON trace_spans(parent_span_id)
+            """
+        )
+
+        # query_scenarios — groups of related executions
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS query_scenarios (
+                id           TEXT PRIMARY KEY,
+                session_id   TEXT NOT NULL,
+                label        TEXT,
+                status       TEXT NOT NULL DEFAULT 'open',
+                started_at   INTEGER NOT NULL,
+                finished_at  INTEGER,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scenarios_session
+                ON query_scenarios(session_id, started_at)
+            """
+        )
+
         await db.commit()
 
 
