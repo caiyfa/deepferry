@@ -16,6 +16,7 @@ from typing import Any
 
 import aiosqlite
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from deepferry.core.errors import SourceNotFoundError
 from deepferry.core.trace import TraceSink
@@ -100,6 +101,15 @@ app = FastAPI(
     description="MCP-based universal data access layer — config panel API",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+# Allow desktop client (Vite dev server) cross-origin requests.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "tauri://localhost"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

@@ -21,6 +21,7 @@ import starlette.applications
 import starlette.requests
 import starlette.responses
 import starlette.routing
+from starlette.middleware.cors import CORSMiddleware
 from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -543,6 +544,15 @@ async def run_http_server(
             starlette.routing.Mount("/api", app=config_app),
             starlette.routing.Mount("/", app=session_manager.handle_request),
         ],
+    )
+
+    # Allow desktop client (Vite dev server) cross-origin requests.
+    starlette_app = CORSMiddleware(  # type: ignore[assignment]
+        starlette_app,
+        allow_origins=["http://localhost:5173", "tauri://localhost"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     config = uvicorn.Config(starlette_app, host=host, port=port, log_level="info")
