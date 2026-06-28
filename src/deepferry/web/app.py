@@ -11,16 +11,32 @@ registry.
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
+import aiosqlite
 from fastapi import Depends, FastAPI, HTTPException
 
 from deepferry.core.errors import SourceNotFoundError
-from deepferry.core.models import SourceSummary
+from deepferry.core.trace import TraceSink
 from deepferry.datasources.registry import SourceRegistry
 
 _registry: SourceRegistry | None = None
 """Module-level registry reference, set by ``init_app()`` at startup."""
+
+_db: aiosqlite.Connection | None = None
+"""Module-level SQLite connection (optional), set by ``init_app()``."""
+
+_trace_sink: TraceSink | None = None
+"""Module-level trace sink (optional), set by ``init_app()``."""
+
+_config_path: Path | None = None
+"""Module-level path to ``config.toml`` (optional), set by ``init_app()``.
+
+Used by the config CRUD endpoints (``POST /api/config/sources`` etc.) to write
+mutations back to disk so they survive restarts and are visible to any other
+process reading the same file.
+"""
 
 
 def get_registry() -> SourceRegistry:
@@ -34,6 +50,39 @@ def get_registry() -> SourceRegistry:
             "Registry not initialized — call init_app(registry) before starting the server."
         )
     return _registry
+
+
+def get_db() -> aiosqlite.Connection | None:
+    """FastAPI dependency returning the optional SQLite connection.
+
+    Returns ``None`` when no database is configured (read-only deployments that
+    skip query-history / trace persistence).
+    """
+    return _db
+
+
+def get_trace_sink() -> TraceSink | None:
+    """FastAPI dependency returning the optional ``TraceSink``.
+
+    Returns ``None`` when tracing is not configured.
+    """
+    return _trace_sink
+
+
+def get_config_path() -> Path:
+    """FastAPI dependency returning the path to ``config.toml`` on disk.
+
+    Used by the config CRUD endpoints (``POST/PUT/DELETE /api/config/sources``)
+    so they can persist mutations.  Raises ``RuntimeError`` if ``init_app()``
+    was not called with ``config_path`` — config mutations are disabled in
+    that case.
+    """
+    if _config_path is None:
+        raise RuntimeError(
+            "Config path not set — call init_app() with config_path to enable "
+            "config CRUD endpoints."
+        )
+    return _config_path
 
 
 @asynccontextmanager
@@ -61,21 +110,6 @@ app = FastAPI(
 async def health() -> dict[str, str]:
     """Liveness probe — returns 200 when the process is running."""
     return {"status": "ok"}
-
-
-# ── Source discovery ────────────────────────────────────────────────────────
-
-
-@app.get("/config/sources")
-async def list_sources(
-    registry: SourceRegistry = Depends(get_registry),
-) -> list[SourceSummary]:
-    """Return a summary of every registered data source.
-
-    Includes source ID, name, type, and a health status string
-    (``"healthy"``, ``"unhealthy"``, or ``"unknown"``).
-    """
-    return registry.list_sources()
 
 
 # ── Source testing ──────────────────────────────────────────────────────────
@@ -114,7 +148,12 @@ async def test_source(
 # ── Bootstrap ───────────────────────────────────────────────────────────────
 
 
-def init_app(registry: SourceRegistry) -> FastAPI:
+def init_app(
+    registry: SourceRegistry,
+    db: aiosqlite.Connection | None = None,
+    trace_sink: TraceSink | None = None,
+    config_path: Path | None = None,
+) -> FastAPI:
     """Initialise and return the FastAPI application with the given registry.
 
     Called by the CLI entry point after loading sources from ``config.toml``::
@@ -127,12 +166,42 @@ def init_app(registry: SourceRegistry) -> FastAPI:
     ----------
     registry : SourceRegistry
         A fully-loaded source registry (all sources connected).
+    db : aiosqlite.Connection | None
+        Optional SQLite connection for query-history persistence.  When
+        ``None``, history-recording endpoints degrade gracefully.
+    trace_sink : TraceSink | None
+        Optional trace sink for execution tracing.  When ``None``, trace
+        endpoints degrade gracefully.
+    config_path : Path | None
+        Optional path to ``config.toml`` on disk.  When provided, the config
+        CRUD endpoints (``POST/PUT/DELETE /api/config/sources``) become
+        functional and persist mutations back to this file.  When ``None``,
+        those endpoints raise ``RuntimeError`` on call.
 
     Returns
     -------
     FastAPI
         The configured application instance.
     """
-    global _registry
+    global _registry, _db, _trace_sink, _config_path
     _registry = registry
+    _db = db
+    _trace_sink = trace_sink
+    _config_path = config_path
+
+    # Imported lazily here (not at module top-level) to avoid a circular
+    # import: every route module imports ``get_registry`` / ``get_db`` /
+    # ``get_trace_sink`` from this module.
+    from deepferry.web.routes.config import router as config_router
+    from deepferry.web.routes.executions import router as executions_router
+    from deepferry.web.routes.history import router as history_router
+    from deepferry.web.routes.query import router as query_router
+    from deepferry.web.routes.schema import router as schema_router
+
+    app.include_router(query_router)
+    app.include_router(schema_router)
+    app.include_router(history_router)
+    app.include_router(executions_router)
+    app.include_router(config_router)
+
     return app
