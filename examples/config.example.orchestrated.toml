@@ -1,0 +1,60 @@
+# Example configuration for an orchestrated multi-step HTTP data source.
+#
+# An orchestrated source executes a linear sequence of HTTP steps with
+# {{variable}} interpolation between steps, plus optional `foreach` fan-out
+# over arrays. From the MCP agent's perspective it is just another data
+# source — one query() call returns one merged StructuredResult.
+#
+# Topology demonstrated below:
+#   login (auth) → discover_stores (discover) → query_each_store (foreach request)
+#
+# Variable interpolation uses {{binding}} tokens resolved against the
+# accumulated execution context:
+#   {{sql}}                       — the agent's query.statement
+#   {{params.x}}                  — the agent's query.params["x"]
+#   {{step_name.alias}}           — an alias extracted from a prior step's output
+#   {{step_name.array[0].field}}  — indexed access into a prior step's output
+#   {{item.field}}                — the current foreach loop element
+#
+# Set ECOMMERCE_PASS in your environment before loading this config:
+#   $ export ECOMMERCE_PASS=secret  (Linux/macOS)
+#   > $env:ECOMMERCE_PASS="secret"  (PowerShell)
+
+[[sources]]
+id = "ecommerce-platform"
+type = "orchestrated"
+base_url = "http://ecommerce-api.internal"
+discovery_ttl_seconds = 300
+
+# Step 1 — authenticate and extract the access token.
+# After this step, {{login.token}} is bound to response.access_token.
+[[sources.steps]]
+name = "login"
+kind = "auth"
+method = "POST"
+path = "/auth/login"
+body_template = { username = "admin", password = "${ECOMMERCE_PASS}" }
+output = { token = "access_token" }
+
+# Step 2 — discover the stores this account may access.
+# After this step, {{discover_stores.stores}} is bound to response.data (the list).
+[[sources.steps]]
+name = "discover_stores"
+kind = "discover"
+method = "GET"
+path = "/api/v1/stores"
+headers = { Authorization = "Bearer {{login.token}}" }
+output = { stores = "data" }
+
+# Step 3 — query each store's recent orders, iterating over the discovered stores.
+# `foreach.over` points at the array extracted by the discover step; `as` names
+# the loop variable (default "item"); `mode = "merge"` UNIONs every iteration's
+# rows into a single StructuredResult (use "separate" for heterogeneous schemas).
+[[sources.steps]]
+name = "query_each_store"
+kind = "request"
+method = "GET"
+path = "/api/v1/stores/{{item.id}}/orders"
+headers = { Authorization = "Bearer {{login.token}}" }
+output = { orders = "data" }
+foreach = { over = "discover_stores.stores", as = "item", mode = "merge" }

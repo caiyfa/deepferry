@@ -1,0 +1,45 @@
+# deepferry — Custom DataSource example configuration
+#
+# Demonstrates a custom imperative data source (`custom:order_enrichment`)
+# composing an HTTP billing API with a MySQL customer table.
+#
+# Load with:
+#   uv run deepferry mcp-server --config examples/config.example.custom.toml
+#
+# IMPORTANT: the custom source module must be imported before config load so
+# its `register_source_type()` side effect runs. In your CLI entrypoint add:
+#
+#     import examples.custom_datasource  # noqa: F401  (registers custom:order_enrichment)
+#
+# See examples/custom_datasource.py and openspec/specs/custom-datasource.md.
+
+[server]
+host = "127.0.0.1"
+port = 8000
+
+# ── Custom source: order_enrichment ───────────────────────────────────
+# A fixed cross-type flow: HTTP billing API → MySQL customer enrichment.
+# All keys under the [[sources]] block that are not reserved top-level fields
+# (id/type/name/host/port/database/user/password/base_url) are captured in
+# `config.extra` and consumed by the custom source implementation.
+
+[[sources]]
+id = "order-enrichment"
+type = "custom:order_enrichment"
+billing_api_url = "https://billing.internal/v1"
+mysql_source_id = "prod-mysql"
+max_rows = 10000
+max_response_bytes = 8388608  # 8 MiB
+
+# ── Composed source: the MySQL source referenced above ────────────────
+# This is a normal built-in source. The custom source resolves it by id at
+# connect() time via the registry back-reference.
+
+[[sources]]
+id = "prod-mysql"
+type = "mysql"
+host = "localhost"
+port = 3306
+database = "production"
+user = "app_user"
+password = "${MYSQL_PASSWORD}"
