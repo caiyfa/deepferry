@@ -9,6 +9,7 @@ Implements all six abstract methods of the DataSource ABC.
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -34,6 +35,8 @@ from deepferry.datasources.registry import register_source_type
 if TYPE_CHECKING:
     from deepferry.config import SourceConfig
 
+logger = logging.getLogger(__name__)
+
 # ── Constants ─────────────────────────────────────────────────────────────
 
 _DEFAULT_MAX_RESPONSE_BYTES = 50 * 1024 * 1024  # 50 MiB
@@ -47,6 +50,20 @@ _ARRAY_DETECTOR_KEYS: tuple[str, ...] = ("data", "items", "results", "records")
 
 # Template token pattern: {{var_name}}  (two braces, no spaces around var_name)
 _BODY_TEMPLATE_RE = re.compile(r"\{\{(\w+)\}\}")
+
+# Maps well-known HTTP status codes to a (error_code, default_message) pair so
+# agents receive actionable, semantically meaningful errors instead of a
+# generic "HTTP 4xx/5xx" bucket.  Unknown statuses fall through to the
+# client/server bucketing in the exception handler.
+_STATUS_CODE_MAP: dict[int, tuple[str, str]] = {
+    401: ("AUTH_FAILED", "Authentication failed — check credentials or token refresh config."),
+    403: ("HTTP_CLIENT_ERROR", "Access forbidden — the server rejected the request."),
+    404: ("HTTP_CLIENT_ERROR", "Resource not found — check the endpoint URL."),
+    429: ("HTTP_CLIENT_ERROR", "Rate limited — slow down requests or increase retry delay."),
+    500: ("HTTP_SERVER_ERROR", "Upstream server error — the API returned an internal error."),
+    502: ("HTTP_SERVER_ERROR", "Bad gateway — the upstream server is unreachable."),
+    503: ("HTTP_SERVER_ERROR", "Service unavailable — the API is temporarily down."),
+}
 
 
 # ── JSON flattening ───────────────────────────────────────────────────────
@@ -397,15 +414,24 @@ class HTTPDataSource(DataSource):
             ) from exc
         except httpx2.HTTPStatusError as exc:
             status = exc.response.status_code
-            prefix = "HTTP_CLIENT_ERROR" if 400 <= status < 500 else "HTTP_SERVER_ERROR"
-            raise DataSourceError(
-                code=prefix,
-                message=f"HTTP {status} from {url!r}: {exc.response.text[:500]}",
-                suggestion=(
-                    "Check the endpoint URL and parameters."
-                    if prefix == "HTTP_CLIENT_ERROR"
-                    else "The upstream server returned an error. Try again later."
+            code, message = _STATUS_CODE_MAP.get(
+                status,
+                (
+                    "HTTP_CLIENT_ERROR" if 400 <= status < 500 else "HTTP_SERVER_ERROR",
+                    f"HTTP {status} from {url!r}",
                 ),
+            )
+            suggestion = (
+                "Check the endpoint URL and parameters."
+                if code == "HTTP_CLIENT_ERROR"
+                else "The upstream server returned an error. Try again later."
+            )
+            if code == "AUTH_FAILED":
+                suggestion = "Check credentials and auth configuration."
+            raise DataSourceError(
+                code=code,
+                message=f"{message}: {exc.response.text[:200]}",
+                suggestion=suggestion,
             ) from exc
 
         # Check actual response body size against the cap.
@@ -608,6 +634,23 @@ class HTTPDataSource(DataSource):
                 response.raise_for_status()
                 data = response.json()
                 columns, _ = _flatten_response(data)
+
+                # Schema drift detection: when explicit columns are declared
+                # elsewhere for this resource AND we sampled here, compare the
+                # declared names against the sampled names.  HTTP APIs may
+                # legitimately return extra fields, so we warn rather than fail.
+                if isinstance(explicit_columns, list) and explicit_columns:
+                    declared_names = {
+                        c["name"] for c in explicit_columns
+                        if isinstance(c, dict) and "name" in c
+                    }
+                    sampled_names = {c.name for c in columns}
+                    if declared_names and sampled_names and declared_names != sampled_names:
+                        logger.warning(
+                            "Schema drift detected for %s: declared=%s, sampled=%s",
+                            name, declared_names, sampled_names,
+                        )
+
                 result_resources.append(ResourceMeta(name=name, columns=columns))
 
             except httpx2.HTTPStatusError:

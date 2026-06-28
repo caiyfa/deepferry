@@ -8,6 +8,7 @@ structured error handling.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -94,9 +95,11 @@ class MySQLDataSource(DataSource):
 
     source_type: ClassVar[str] = "mysql"
 
-    _READ_ONLY_PREFIXES: ClassVar[tuple[str, ...]] = (
-        "SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "WITH",
-    )
+    _DANGEROUS_KEYWORDS: ClassVar[frozenset[str]] = frozenset({
+        "DROP", "TRUNCATE", "DELETE", "UPDATE", "INSERT",
+        "ALTER", "GRANT", "REPLACE", "MERGE", "CREATE",
+        "EXEC", "EXECUTE", "CALL",
+    })
 
     def __init__(self, config: SourceConfig) -> None:
         super().__init__()
@@ -104,12 +107,35 @@ class MySQLDataSource(DataSource):
         self._pool: asyncmy.Pool | None = None
 
     @staticmethod
-    def _is_read_only(statement: str) -> bool:
-        """Check if a SQL statement is a read-only operation."""
-        stripped = statement.strip().upper()
-        return any(
-            stripped.startswith(prefix) for prefix in MySQLDataSource._READ_ONLY_PREFIXES
-        )
+    def _scan_sql(sql: str) -> None:
+        """Scan SQL for dangerous keywords using word-boundary matching.
+
+        Splits on ``;`` to catch stacked queries, then checks each segment
+        for write keywords using ``\\bWORD\\b`` regex so substrings like
+        ``SELEC`` or column names containing ``UPDATE`` (e.g. ``updated_at``)
+        are not misclassified as writes.
+        """
+        for segment in sql.upper().split(";"):
+            for kw in MySQLDataSource._DANGEROUS_KEYWORDS:
+                if re.search(rf"\b{re.escape(kw)}\b", segment):
+                    raise DataSourceError(
+                        code="WRITE_BLOCKED",
+                        message=f"Dangerous keyword '{kw}' detected in SQL statement.",
+                        suggestion="Only SELECT queries are allowed. Use SHOW/DESCRIBE/EXPLAIN for schema exploration.",
+                    )
+
+    @staticmethod
+    def enforce_limit(sql: str, max_rows: int) -> str:
+        """Auto-inject LIMIT if the query doesn't already have one.
+
+        Skips statements that start with ``SHOW``, ``DESCRIBE``, ``EXPLAIN``,
+        or ``WITH`` (CTEs) and statements that already declare a LIMIT.
+        """
+        upper = sql.upper().strip()
+        if "LIMIT" not in upper and not upper.startswith(("SHOW", "DESCRIBE", "EXPLAIN", "WITH")):
+            sql = sql.rstrip(";").rstrip()
+            return f"{sql} LIMIT {max_rows}"
+        return sql
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
@@ -178,12 +204,12 @@ class MySQLDataSource(DataSource):
         """
         self._require_connected()
 
-        if not self._is_read_only(query.statement):
-            raise DataSourceError(
-                code="WRITE_NOT_ALLOWED",
-                message="Write operations are not permitted through deepferry.",
-                suggestion="Use a direct database connection for INSERT/UPDATE/DELETE.",
-            )
+        # Reject dangerous SQL keywords (write operations) up-front.
+        self._scan_sql(query.statement)
+
+        # Auto-inject LIMIT to protect against unbounded result sets.
+        max_rows_val = query.max_rows or 100000
+        statement = self.enforce_limit(query.statement, max_rows_val)
 
         params_dict: dict[str, Any] | None = query.params
         params_args: tuple[Any, ...] | None = (
@@ -193,11 +219,26 @@ class MySQLDataSource(DataSource):
 
         try:
             async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+                # Enforce DB-level read-only and statement timeout for the
+                # lifetime of this connection checkout.
+                timeout_ms = query.timeout * 1000
+                async with conn.cursor() as setup_cur:
+                    await setup_cur.execute("SET TRANSACTION READ ONLY")
+                    await setup_cur.execute(
+                        f"SET SESSION MAX_EXECUTION_TIME = {timeout_ms}"
+                    )
+
                 async with conn.cursor() as cursor:
-                    coro = cursor.execute(query.statement, params_args)
+                    coro = cursor.execute(statement, params_args)
                     await asyncio.wait_for(coro, timeout=query.timeout)
 
-                    rows: list[tuple[Any, ...]] = await cursor.fetchall()
+                    rows: list[tuple[Any, ...]] = []
+                    batch_size = 1000
+                    while True:
+                        batch = await cursor.fetchmany(batch_size)
+                        if not batch:
+                            break
+                        rows.extend(batch)
 
                     if cursor.description:
                         col_names = [desc[0] for desc in cursor.description]
@@ -276,7 +317,7 @@ class MySQLDataSource(DataSource):
                         "FROM information_schema.TABLES "
                         "WHERE TABLE_SCHEMA = DATABASE()"
                     )
-                    rows = await cursor.fetchall()
+                    rows = await cursor.fetchmany(size=1000)
                     return [
                         Resource(
                             name=row[0],
@@ -330,7 +371,7 @@ class MySQLDataSource(DataSource):
                             "FROM information_schema.COLUMNS "
                             "WHERE TABLE_SCHEMA = DATABASE()"
                         )
-                    rows = await cursor.fetchall()
+                    rows = await cursor.fetchmany(size=1000)
 
                     # Group columns by table name.
                     tables: dict[str, list[ColumnMeta]] = {}

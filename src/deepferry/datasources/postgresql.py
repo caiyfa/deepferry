@@ -11,6 +11,7 @@ resolves to this class.
 
 from __future__ import annotations
 
+import re
 import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -50,9 +51,11 @@ class PostgreSQLDataSource(DataSource):
 
     source_type: ClassVar[str] = "postgresql"
 
-    _READ_ONLY_PREFIXES: ClassVar[tuple[str, ...]] = (
-        "SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "WITH",
-    )
+    _DANGEROUS_KEYWORDS: ClassVar[frozenset[str]] = frozenset({
+        "DROP", "TRUNCATE", "DELETE", "UPDATE", "INSERT",
+        "ALTER", "GRANT", "REPLACE", "MERGE", "CREATE",
+        "EXEC", "EXECUTE", "CALL",
+    })
 
     def __init__(self, config: SourceConfig) -> None:
         super().__init__()
@@ -60,13 +63,35 @@ class PostgreSQLDataSource(DataSource):
         self._pool: asyncpg.Pool[asyncpg.Record] | None = None
 
     @staticmethod
-    def _is_read_only(statement: str) -> bool:
-        """Check if a SQL statement is a read-only operation."""
-        stripped = statement.strip().upper()
-        return any(
-            stripped.startswith(prefix)
-            for prefix in PostgreSQLDataSource._READ_ONLY_PREFIXES
-        )
+    def _scan_sql(sql: str) -> None:
+        """Scan SQL for dangerous keywords using word-boundary matching.
+
+        Splits on ``;`` to catch stacked queries, then checks each segment
+        for write keywords using ``\\bWORD\\b`` regex so substrings like
+        ``SELEC`` or column names containing ``UPDATE`` (e.g. ``updated_at``)
+        are not misclassified as writes.
+        """
+        for segment in sql.upper().split(";"):
+            for kw in PostgreSQLDataSource._DANGEROUS_KEYWORDS:
+                if re.search(rf"\b{re.escape(kw)}\b", segment):
+                    raise DataSourceError(
+                        code="WRITE_BLOCKED",
+                        message=f"Dangerous keyword '{kw}' detected in SQL statement.",
+                        suggestion="Only SELECT queries are allowed. Use SHOW/DESCRIBE/EXPLAIN for schema exploration.",
+                    )
+
+    @staticmethod
+    def enforce_limit(sql: str, max_rows: int) -> str:
+        """Auto-inject LIMIT if the query doesn't already have one.
+
+        Skips statements that start with ``SHOW``, ``DESCRIBE``, ``EXPLAIN``,
+        or ``WITH`` (CTEs) and statements that already declare a LIMIT.
+        """
+        upper = sql.upper().strip()
+        if "LIMIT" not in upper and not upper.startswith(("SHOW", "DESCRIBE", "EXPLAIN", "WITH")):
+            sql = sql.rstrip(";").rstrip()
+            return f"{sql} LIMIT {max_rows}"
+        return sql
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -125,12 +150,12 @@ class PostgreSQLDataSource(DataSource):
                 suggestion="Call connect() before executing queries.",
             )
 
-        if not self._is_read_only(query.statement):
-            raise DataSourceError(
-                code="WRITE_NOT_ALLOWED",
-                message="Write operations are not permitted through deepferry.",
-                suggestion="Use a direct database connection for INSERT/UPDATE/DELETE.",
-            )
+        # Reject dangerous SQL keywords (write operations) up-front.
+        self._scan_sql(query.statement)
+
+        # Auto-inject LIMIT to protect against unbounded result sets.
+        max_rows_val = query.max_rows or 100000
+        statement = self.enforce_limit(query.statement, max_rows_val)
 
         params_list: list[Any] = []
         if query.params:
@@ -139,8 +164,13 @@ class PostgreSQLDataSource(DataSource):
         start = time.perf_counter()
         try:
             async with self._pool.acquire() as conn:
+                # Enforce DB-level read-only and statement timeout for the
+                # lifetime of this connection checkout.
+                await conn.execute("SET default_transaction_read_only = on")
+                await conn.execute(f"SET statement_timeout = '{query.timeout}s'")
+
                 rows: list[asyncpg.Record] = await conn.fetch(
-                    query.statement, *params_list, timeout=query.timeout
+                    statement, *params_list, timeout=query.timeout
                 )
         except (TimeoutError, asyncpg.exceptions.QueryCanceledError) as exc:
             raise DataSourceError(
@@ -193,7 +223,7 @@ class PostgreSQLDataSource(DataSource):
             # No rows returned — attempt to infer columns by preparing the statement
             try:
                 async with self._pool.acquire() as conn:
-                    stmt = await conn.prepare(query.statement)
+                    stmt = await conn.prepare(statement)
                     attrs = stmt.get_attributes()
                     for attr in attrs:
                         pg_type = self._oid_to_typename(attr.type_oid, conn)
