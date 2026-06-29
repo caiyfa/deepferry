@@ -6,7 +6,7 @@ spring:
     name: financial-ledger-mock
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3308/finance_ledger}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/finance_ledger}
     username: ${SPRING_DATASOURCE_USERNAME:finance}
     password: ${SPRING_DATASOURCE_PASSWORD:finance_pass}
     driver-class-name: com.mysql.cj.jdbc.Driver

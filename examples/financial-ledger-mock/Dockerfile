@@ -11,6 +11,7 @@ WORKDIR /build
 COPY mvnw mvnw.cmd ./
 COPY .mvn/ .mvn/
 COPY pom.xml ./
+COPY settings-docker.xml /root/.m2/settings.xml
 
 # Download dependencies (cached unless pom.xml changes)
 RUN chmod +x mvnw && ./mvnw dependency:go-offline -B

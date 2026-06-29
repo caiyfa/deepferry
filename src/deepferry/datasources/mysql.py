@@ -223,7 +223,8 @@ class MySQLDataSource(DataSource):
                 # lifetime of this connection checkout.
                 timeout_ms = query.timeout * 1000
                 async with conn.cursor() as setup_cur:
-                    await setup_cur.execute("SET TRANSACTION READ ONLY")
+                    await setup_cur.execute("ROLLBACK")
+                    await setup_cur.execute("SET SESSION TRANSACTION READ ONLY")
                     await setup_cur.execute(
                         f"SET SESSION MAX_EXECUTION_TIME = {timeout_ms}"
                     )

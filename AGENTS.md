@@ -82,6 +82,162 @@ tests/                 ← pytest + pytest-asyncio
 3. Update `tasks.md`: mark completed
 4. Do NOT commit if any acceptance criteria are unmet
 
+## Docker Environment & Testing Workflow
+
+> **CRITICAL**: This section defines the canonical Docker/MySQL startup, reset, and testing workflow. All agents MUST follow this sequence exactly. Deviation causes non-reproducible test failures.
+
+### Architecture
+
+```
+deepferry-mysql (mysql:8, port 3306)
+├── deepferry          ← e2e test tables + schema_version
+└── finance_ledger     ← financial-ledger-mock JPA tables
+
+deepferry-postgres (postgres:16, port 5432)
+└── deepferry          ← PostgreSQL test database
+
+deepferry (Python MCP server, port 8000) ──→ deepferry (MySQL) + deepferry (PostgreSQL)
+financial-ledger-mock (Spring Boot, port 8080) ──→ finance_ledger (user: finance)
+```
+
+One MySQL container serves both `deepferry` and `financial-ledger-mock` via different databases. The container runs on the `deepferry_deepferry` bridge network. The financial-ledger-mock compose joins this network as `external: true`.
+
+**Config mount**: Inside Docker, `config.docker.toml` is mounted as `config.toml` with explicit environment variables (not host pass-through). Local development uses `config.toml` directly (pointing at `127.0.0.1:3306`). The Docker compose sets `MYSQL_HOST=mysql`, `POSTGRES_HOST=postgres`, etc. so the container resolves service names.
+
+### Versioned Init System
+
+MySQL Docker entrypoint executes `docker/mysql-init/*.sql` in alphabetical order **only when the data volume is empty** (first run or after `down -v`).
+
+**Version tracking**: A `schema_version` table in the `deepferry` database records every applied migration:
+
+```sql
+SELECT * FROM deepferry.schema_version;
+-- +---------+------------------+---------------------+
+-- | version | description      | applied_at          |
+-- +---------+------------------+---------------------+
+-- | V001    | Baseline test... | 2026-06-29 10:00:00 |
+-- | V002    | Finance Ledger.. | 2026-06-29 10:00:01 |
+-- +---------+------------------+---------------------+
+```
+
+Each `Vxxx__*.sql` file MUST end with an `INSERT IGNORE` into `schema_version` to make it traceable.
+
+### Adding a New Migration
+
+When test data or schema needs to change:
+
+1. Create `docker/mysql-init/V003__<short_description>.sql`
+2. Make all DDL idempotent (`CREATE TABLE IF NOT EXISTS`, `INSERT ... ON DUPLICATE KEY UPDATE`)
+3. Append version record:
+   ```sql
+   USE deepferry;
+   INSERT IGNORE INTO schema_version (version, description)
+   VALUES ('V003', 'What this migration adds');
+   ```
+4. Destroy and recreate to verify:
+   ```bash
+   docker compose down -v
+   docker compose up mysql -d --wait
+   docker compose exec mysql mysql -uroot -ptestpass deepferry \
+     -e "SELECT * FROM schema_version;"
+   ```
+5. Run the full test suite against the fresh environment
+
+### Startup Sequence (Development)
+
+```bash
+# 1. Start shared MySQL (always first)
+docker compose up mysql -d --wait
+
+# 2. Verify MySQL is ready
+docker compose exec mysql mysqladmin ping -h localhost
+
+# 3. Option A: Run deepferry with full profile (MySQL + PostgreSQL + app)
+docker compose --profile full up -d --wait
+
+# 3. Option B: Run only deepferry app (MySQL must already be running)
+docker compose up deepferry -d
+
+# 4. Start financial-ledger-mock (if needed)
+cd examples/financial-ledger-mock
+docker compose up --build -d
+```
+
+**financial-ledger-mock build note**: The Dockerfile uses `eclipse-temurin:21-jdk-jammy` and Maven. In China, configure Maven mirror via `settings-docker.xml` (included). Docker registry mirror in `~/.docker/daemon.json` is also required (see Troubleshooting).
+
+### Development Testing
+
+**Quick iteration** (no schema changes, MySQL already running with data):
+
+```bash
+pytest tests/ -v
+ruff check . && mypy src/
+```
+
+**Full reset** (schema or seed data changed, or before acceptance testing):
+
+```bash
+# 1. Destroy everything including volumes
+docker compose down -v
+cd examples/financial-ledger-mock && docker compose down -v && cd ../..
+
+# 2. Fresh MySQL with re-initialized data
+docker compose up mysql -d --wait
+
+# 3. Verify version table
+docker compose exec mysql mysql -uroot -ptestpass deepferry \
+  -e "SELECT version, description FROM schema_version ORDER BY version;"
+
+# 4. Run tests
+pytest tests/ -v
+
+# 5. Lint
+ruff check . && mypy src/
+```
+
+### Acceptance Testing Checklist
+
+Before claiming a feature is complete, the agent MUST:
+
+- [ ] `docker compose down -v` (clean state)
+- [ ] `docker compose up mysql -d --wait` (MySQL healthy)
+- [ ] `docker compose exec mysql mysql -uroot -ptestpass deepferry -e "SELECT COUNT(*) = 2 FROM schema_version;"` → 1 (both V001 and V002 applied)
+- [ ] `docker compose exec mysql mysql -uroot -ptestpass deepferry -e "SELECT COUNT(*) = 7 FROM customers;"` → 7 (seed data intact)
+- [ ] `docker compose exec mysql mysql -uroot -ptestpass -e "SHOW DATABASES;" | grep finance_ledger` → exists
+- [ ] `docker compose --profile full up -d --wait` (all services healthy: deepferry, mysql, postgres)
+- [ ] `curl -sf http://localhost:8000/health` → `{"status":"ok"}`
+- [ ] `pytest tests/ -v` → all pass
+- [ ] `ruff check .` → clean
+- [ ] `mypy src/` → clean
+
+### Self-Contained Verification
+
+One-liner to verify the entire Docker environment is healthy:
+
+```bash
+docker compose down -v \
+  && docker compose up mysql -d --wait \
+  && docker compose exec mysql mysql -uroot -ptestpass deepferry \
+       -e "SELECT version, description, applied_at FROM schema_version ORDER BY version;" \
+  && docker compose exec mysql mysql -uroot -ptestpass -e "SHOW DATABASES;" \
+  && docker compose --profile full up -d --wait \
+  && curl -sf http://localhost:8000/health \
+  && pytest tests/ -v
+```
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Tests fail with "table not found" | MySQL volume not re-initialized after schema change | `docker compose down -v && docker compose up mysql -d --wait` |
+| `schema_version` has wrong count | Old volume persisted, new migration not applied | Same as above |
+| `finance_ledger` DB missing | V002 not executed (old volume or init script name changed) | Verify `docker/mysql-init/` file list; reset with `down -v` |
+| financial-mock can't connect | finance user not created or network mismatch | Verify `deepferry_deepferry` network exists; check mysql health |
+| financial-mock build fails: Maven `Remote host terminated` | Maven Central blocked | `settings-docker.xml` included (Aliyun mirror); rebuild with `--no-cache` |
+| financial-mock build fails: `eclipse-temurin` pull fails | Docker Hub blocked | Configure `registry-mirrors` in `~/.docker/daemon.json`; restart Docker Desktop |
+| deepferry MCP server unhealthy | Config points to `127.0.0.1` inside container | Must use `config.docker.toml` (mounted via compose); check `docker compose config` |
+| PostgreSQL source connection refused | deepferry started before postgres was ready | `docker compose --profile full up -d --wait` handles ordering; manually restart: `docker compose restart deepferry` |
+
 ## Conventions
 
 ### Python

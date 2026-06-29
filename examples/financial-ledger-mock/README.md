@@ -16,6 +16,10 @@ deepferry HTTP API 数据源验证用例 — 基于 Spring Boot 3.3 的财务总
 ## 快速启动
 
 ```bash
+# 1. 先启动 deepferry 共享 MySQL（项目根目录）
+docker compose --profile full up mysql -d
+
+# 2. 再启动本微服务
 cd examples/financial-ledger-mock
 docker compose up --build
 ```
@@ -25,7 +29,9 @@ docker compose up --build
 | 服务 | 地址 |
 |------|------|
 | 微服务 API | `http://localhost:8080` |
-| MySQL | `localhost:3308` |
+| MySQL（共享） | `localhost:3306` |
+
+> **独立模式**（不依赖 deepferry 项目）：`docker compose --profile standalone up --build`
 
 ## 默认账号
 
@@ -39,7 +45,7 @@ docker compose up --build
 
 | 参数 | 值 |
 |------|-----|
-| Host | `localhost:3308` |
+| Host | `localhost:3306` |
 | Database | `finance_ledger` |
 | User | `finance` |
 | Password | `finance_pass` |
