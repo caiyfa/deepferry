@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>deepferry Console — 原型</title>
+<style>
+:root {
+  --bg:#0b0e14;--bg2:#11151c;--bg3:#181d26;--border:#1e2430;
+  --text:#cdd6f4;--text2:#8b92a8;--accent:#7aa2f7;--accent2:#3d59a1;
+  --green:#9ece6a;--red:#f7768e;--yellow:#e0af68;--purple:#bb9af7;--teal:#1abc9c;
+  --radius:6px;--font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono","SF Mono","Fira Code",monospace;--transition:all .15s ease
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:hidden}
+
+/* Sidebar */
+.sidebar{width:240px;min-width:240px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:16px 12px;gap:2px;overflow-y:auto}
+.sidebar-logo{font-size:15px;font-weight:700;padding:4px 8px 10px;color:var(--accent);letter-spacing:-0.3px;border-bottom:1px solid var(--border);margin-bottom:4px}
+.sidebar-section{margin-top:10px;padding:4px 8px 2px;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.6px}
+.sidebar-item{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--radius);font-size:13px;cursor:pointer;transition:var(--transition);position:relative}
+.sidebar-item:hover{background:var(--bg3)}
+.sidebar-item.active{background:var(--accent2);color:#fff}
+.sidebar-item .badge{position:absolute;right:8px;background:var(--accent);color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;min-width:18px;text-align:center}
+
+.source-item{display:flex;align-items:center;gap:6px;padding:5px 8px 5px 10px;font-size:12px;border-radius:var(--radius);cursor:pointer;position:relative;margin:1px 0}
+.source-item:hover{background:var(--bg3)}
+.source-item.selected{background:var(--accent2);color:#fff}
+.source-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.source-dot.mysql{background:var(--yellow)}.source-dot.pg{background:var(--accent)}.source-dot.http{background:var(--teal)}.source-dot.duck{background:var(--purple)}
+.source-type{font-size:9px;text-transform:uppercase;color:var(--text2);opacity:.7;margin-left:auto}
+
+/* Main */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.main-header{height:44px;min-height:44px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--border);gap:12px;font-size:13px;flex-shrink:0}
+.main-header .mode-title{font-weight:600;font-size:14px}
+.main-content{flex:1;overflow-y:auto;padding:20px}
+
+.statusbar{height:26px;min-height:26px;background:var(--bg2);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:14px;font-size:10px;color:var(--text2);flex-shrink:0}
+.statusbar .s-item{display:flex;align-items:center;gap:5px}
+.statusbar .s-dot{width:6px;height:6px;border-radius:50%}
+
+.panel{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.panel-sm{padding:12px}
+.panel-title{font-size:11px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:8px}
+.panel-title .tag{font-size:9px;padding:2px 6px;border-radius:3px;text-transform:none;letter-spacing:0}
+.tag-mysql{background:rgba(224,175,104,.2);color:var(--yellow)}
+.tag-pg{background:rgba(122,162,247,.2);color:var(--accent)}
+.tag-http{background:rgba(26,188,156,.2);color:var(--teal)}
+.tag-duck{background:rgba(187,154,247,.2);color:var(--purple)}
+
+.nl-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;font-size:14px;color:var(--text);font-family:var(--font);outline:none;resize:none;min-height:42px;transition:border .2s}
+.nl-input:focus{border-color:var(--accent)}
+.nl-input::placeholder{color:var(--text2)}
+
+.btn{background:var(--accent);color:#fff;border:none;border-radius:var(--radius);padding:6px 14px;font-size:12px;cursor:pointer;font-family:var(--font);transition:opacity .15s}
+.btn:hover{opacity:.9}
+.btn--ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+.btn--sm{padding:4px 10px;font-size:11px}
+.btn--xs{padding:2px 6px;font-size:10px}
+
+.suggestions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.suggestion{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;font-size:12px;cursor:pointer;transition:var(--transition);color:var(--text2)}
+.suggestion:hover{background:var(--accent2);color:#fff;border-color:var(--accent2)}
+.suggestion.cross{background:rgba(187,154,247,.1);border-color:var(--purple)}
+
+.result-box{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:12px}
+.result-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:11px;color:var(--text2)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:7px 12px;background:var(--bg2);border-bottom:1px solid var(--border);font-weight:600;font-size:11px;color:var(--text2);text-transform:uppercase}
+td{padding:7px 12px;border-bottom:1px solid rgba(255,255,255,.03)}
+tr:hover td{background:var(--bg3)}
+.num{font-family:var(--mono);text-align:right}
+
+.feed-item{padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:var(--transition)}
+.feed-item:hover{background:var(--bg2)}
+.feed-item .agent-line{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px}
+.feed-item .sql-box{background:var(--bg);border-radius:var(--radius);padding:8px 10px;font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--text2);overflow:hidden;white-space:pre-wrap;max-height:70px}
+.feed-item .meta{display:flex;gap:14px;font-size:11px;color:var(--text2);margin-top:6px}
+.feed-item .meta .ok{color:var(--green)}
+.feed-item .meta .err{color:var(--red)}
+
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+.stat-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+.stat-label{font-size:10px;color:var(--text2);margin-bottom:4px}
+.stat-value{font-size:22px;font-weight:700;font-family:var(--mono)}
+.stat-change{font-size:10px;margin-top:4px}.stat-change.up{color:var(--green)}.stat-change.down{color:var(--red)}
+
+.split{display:flex;gap:12px}
+.split-main{flex:1;min-width:0}
+.split-side{width:270px;min-width:270px}
+
+.sql-editor{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 0;font-family:var(--mono);font-size:13px;line-height:1.65;overflow:auto;display:flex;min-height:200px}
+.sql-editor .ln{color:var(--text2);padding:0 8px;text-align:right;user-select:none;font-size:10px;min-width:28px;line-height:1.65;opacity:.4}
+.sql-editor .code{flex:1;padding:0 10px 0 2px;outline:none;color:var(--text);white-space:pre-wrap}
+.sql-editor .code:empty:before{content:attr(data-placeholder);color:var(--text2)}
+
+.schema-tree{font-size:12px;line-height:1.8}
+.schema-tree .tbl{font-weight:600;cursor:pointer;padding:2px 0}
+.schema-tree .tbl:hover{opacity:.8}
+.schema-tree .col{padding-left:14px;color:var(--text2);cursor:pointer;font-size:11px}
+.schema-tree .col:hover{color:var(--text)}
+.schema-tree .source-hdr{font-size:10px;text-transform:uppercase;color:var(--text2);padding:8px 0 2px;border-top:1px solid var(--border);margin-top:6px;display:flex;align-items:center;gap:6px}
+
+.timeline{margin:8px 0}
+.timeline-item{display:flex;align-items:center;gap:10px;padding:3px 0;font-size:12px}
+.timeline-bar{height:14px;background:var(--accent2);border-radius:3px;min-width:4px}
+.timeline-bar.mysql{background:var(--yellow)}.timeline-bar.http{background:var(--teal)}.timeline-bar.duck{background:var(--purple)}
+.timeline-label{color:var(--text2);min-width:65px;font-family:var(--mono);font-size:10px}
+
+.orchestra{display:flex;gap:12px;align-items:center;overflow-x:auto;padding:12px 0;font-size:11px;flex-wrap:wrap}
+.orchestra .node{flex-shrink:0;padding:8px 14px;border-radius:var(--radius);border:1px solid;text-align:center;min-width:90px}
+.orchestra .node.mysql{border-color:var(--yellow);background:rgba(224,175,104,.08)}
+.orchestra .node.http{border-color:var(--teal);background:rgba(26,188,156,.08)}
+.orchestra .node.duck{border-color:var(--purple);background:rgba(187,154,247,.08)}
+.orchestra .arrow{font-size:16px;color:var(--text2);flex-shrink:0}
+.orchestra .node-label{font-weight:600;margin-bottom:2px}
+.orchestra .node-sub{font-size:10px;color:var(--text2)}
+
+.chat-item{display:flex;gap:8px;margin-bottom:12px;font-size:13px;line-height:1.6}
+.chat-item.user .chat-bubble{background:var(--accent2);color:#fff}
+.chat-item.ai .chat-bubble{background:var(--bg3);border:1px solid var(--border)}
+.chat-bubble{padding:10px 14px;border-radius:var(--radius);max-width:90%}
+.chat-avatar{width:24px;height:24px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+
+.progress-steps{font-size:12px;color:var(--text2);line-height:2.2}
+.progress-steps .done{color:var(--green)}
+.progress-steps .active{color:var(--accent)}
+
+details.expandable{margin-top:8px}
+details.expandable summary{font-size:11px;color:var(--text2);cursor:pointer;list-style-type:'▸ '}
+details.expandable[open] summary{list-style-type:'▾ '}
+details.expandable pre{background:var(--bg);padding:10px;border-radius:var(--radius);margin-top:6px;font-family:var(--mono);font-size:11px;overflow-x:auto;color:var(--text2);line-height:1.6}
+
+.empty{text-align:center;padding:50px 20px;color:var(--text2)}
+.empty .glyph{font-size:36px;margin-bottom:10px;opacity:.5}
+.empty h3{color:var(--text);margin-bottom:6px;font-weight:500}
+.empty p{font-size:13px;max-width:420px;margin:0 auto 14px;line-height:1.6}
+
+.cmd-palette{position:fixed;top:15%;left:50%;transform:translateX(-50%);width:520px;max-width:90vw;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:100;display:none}
+.cmd-palette.show{display:block}
+.cmd-palette input{width:100%;background:transparent;border:none;padding:14px 16px;font-size:15px;color:var(--text);font-family:var(--font);outline:none}
+.cmd-results{max-height:300px;overflow-y:auto}
+.cmd-result{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;font-size:13px;cursor:pointer;transition:background .1s}
+.cmd-result:hover,.cmd-result.selected{background:var(--accent2)}
+.cmd-shortcut{font-size:10px;color:var(--text2);font-family:var(--mono)}
+.cmd-section{font-size:10px;color:var(--text2);padding:8px 16px 4px;text-transform:uppercase;letter-spacing:.5px}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99;display:none;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;width:420px;max-width:90vw}
+.modal-box h3{font-size:15px;margin-bottom:14px}
+
+.spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--text2);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+.hidden{display:none!important}
+.active-sources{display:flex;gap:4px;margin-left:8px}.active-sources .as-dot{width:6px;height:6px;border-radius:50%}
+</style>
+</head>
+<body>
+
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-logo">🚢 deepferry</div>
+
+  <div class="sidebar-item active" data-mode="explore" onclick="switchMode('explore')">
+    <span class="icon">▌</span> 探索
+  </div>
+  <div class="sidebar-item" data-mode="monitor" onclick="switchMode('monitor')">
+    <span class="icon">▣</span> 监控
+    <span class="badge">3</span>
+  </div>
+  <div class="sidebar-item" data-mode="query" onclick="switchMode('query')">
+    <span class="icon">▸</span> 查询
+  </div>
+
+  <div class="sidebar-section">数据源</div>
+  <div class="source-item selected" data-source="mysql-main" onclick="toggleSource(this)">
+    <span class="source-dot mysql"></span>mysql-main<span class="source-type">MySQL</span>
+  </div>
+  <div class="source-item" data-source="pg-main" onclick="toggleSource(this)">
+    <span class="source-dot pg"></span>pg-main<span class="source-type">PG</span>
+  </div>
+  <div class="source-item" data-source="finance-api" onclick="toggleSource(this)">
+    <span class="source-dot http"></span>finance-api<span class="source-type">HTTP</span>
+  </div>
+  <div style="font-size:10px;color:var(--text2);padding:3px 10px">
+    选中多个数据源 → 跨源查询
+  </div>
+
+  <div class="sidebar-section">收藏</div>
+  <div class="sidebar-item"><span class="icon">⭐</span> 月度销售报表</div>
+  <div class="sidebar-item"><span class="icon">⭐</span> 客户+发票跨源分析</div>
+
+  <div style="margin-top:auto">
+    <div class="sidebar-item"><span class="icon">🕐</span> 历史</div>
+    <div class="sidebar-item"><span class="icon">⚙</span> 设置</div>
+  </div>
+</nav>
+
+<div class="main">
+  <header class="main-header">
+    <span class="mode-title" id="modeTitle">▌ 探索</span>
+    <div class="active-sources" id="activeSourceDots"></div>
+    <div class="actions" style="margin-left:auto">
+      <span style="font-size:11px;color:var(--text2)">Ctrl+K</span>
+    </div>
+  </header>
+  <div class="main-content" id="mainContent"></div>
+  <footer class="statusbar">
+    <span class="s-item"><span class="s-dot" style="background:var(--yellow)"></span> mysql:3306</span>
+    <span class="s-item"><span class="s-dot" style="background:var(--accent)"></span> pg:5432</span>
+    <span class="s-item"><span class="s-dot" style="background:var(--teal)"></span> api:8080</span>
+    <span class="s-item" style="margin-left:auto"><span class="s-dot" style="background:var(--green)"></span> DuckDB ready</span>
+    <span class="s-item">3 agents online</span>
+    <span class="s-item">v0.2.0</span>
+  </footer>
+</div>
+
+<div class="cmd-palette" id="cmdPalette">
+  <input type="text" placeholder="输入命令或搜索..." id="cmdInput" onkeydown="handleCmdKey(event)" oninput="filterCmd()">
+  <div class="cmd-results" id="cmdResults"></div>
+</div>
+
+<script>
+let currentMode='explore',chatHistory=[],selectedSources=new Set(['mysql-main']);
+
+function updateSourceDots(){
+  const dots=document.getElementById('activeSourceDots');
+  const colors={mysql:'var(--yellow)','pg-main':'var(--accent)','finance-api':'var(--teal)'};
+  let h='';
+  selectedSources.forEach(s=>{let c=colors[s]||'var(--text2)';h+=`<span class="as-dot" style="background:${c}" title="${s}"></span>`});
+  dots.innerHTML=h;
+}
+updateSourceDots();
+
+function toggleSource(el){
+  const src=el.dataset.source;
+  if(selectedSources.has(src)){if(selectedSources.size>1)selectedSources.delete(src);}
+  else selectedSources.add(src);
+  document.querySelectorAll('.source-item').forEach(si=>{
+    si.classList.toggle('selected',selectedSources.has(si.dataset.source));
+  });
+  updateSourceDots();
+}
+
+function switchMode(mode){
+  currentMode=mode;
+  document.querySelectorAll('.sidebar-item[data-mode]').forEach(el=>el.classList.remove('active'));
+  const el=document.querySelector(`.sidebar-item[data-mode="${mode}"]`);
+  if(el)el.classList.add('active');
+  const titles={explore:'▌ 探索',monitor:'▣ 监控 · Agent Sessions',query:'▸ 查询'};
+  document.getElementById('modeTitle').textContent=titles[mode];
+  if(mode==='explore')renderExplore();
+  else if(mode==='monitor')renderMonitor();
+  else if(mode==='query')renderQuery();
+}
+
+// =========================== EXPLORE ===========================
+function renderExplore(){
+  if(chatHistory.length===0){renderExploreEmpty();return;}
+  let html='';
+  chatHistory.forEach(item=>{
+    html+=`<div class="chat-item user"><div class="chat-avatar">👤</div><div class="chat-bubble">${esc(item.question)}</div></div>`;
+    if(item.loading){
+      html+=`<div class="chat-item ai"><div class="chat-avatar">🚢</div><div class="chat-bubble"><div class="progress-steps">`;
+      item.steps.forEach(s=>{
+        html+=`<div class="${s.done?'done':'active'}">${s.done?'✓':'<span class="spinner"></span>'} ${s.label}</div>`;
+      });
+      html+=`</div></div></div>`;
+    }else if(item.result){
+      html+=renderResult(item);
+    }
+  });
+  html+=`<div class="panel" style="margin-top:12px"><textarea class="nl-input" id="nlInput" placeholder="🔍  追问或问新问题..." rows="2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askQuestion()}"></textarea><div class="suggestions">`;
+  html+=`<div class="suggestion" onclick="askSuggestion('这些客户的退货率是多少？')">📊 退货率分析</div>`;
+  html+=`<div class="suggestion" onclick="askSuggestion('对比MySQL客户表和API发票，找出大额消费客户')">🔗 跨源关联</div>`;
+  html+=`<div class="suggestion" onclick="askSuggestion('这些客户最近六个月的趋势')">📈 趋势图</div>`;
+  html+=`</div></div>`;
+  document.getElementById('mainContent').innerHTML=html;
+  setTimeout(()=>{const inp=document.getElementById('nlInput');if(inp)inp.focus()},100);
+}
+
+function renderResult(item){
+  const r=item.result;
+  const orchestr=(r.orchestra||[['mysql-main','MySQL','customers','7 rows','var(--yellow)'],['finance-api','HTTP','/api/v1/invoices','8 rows','var(--teal)'],['DuckDB','引擎','JOIN on tax_no','5 rows','var(--purple)']]);
+  let orcHtml='<div class="orchestra">';
+  orchestr.forEach((n,i)=>{
+    orcHtml+=`<div class="node ${n[1].toLowerCase()==='mysql'?'mysql':n[1].toLowerCase()==='http'?'http':'duck'}" style="border-color:${n[4]}"><div class="node-label" style="color:${n[4]}">${n[0]}</div><div class="node-sub">${n[1]}</div><div class="node-sub">${n[2]}</div><div class="node-sub" style="color:${n[4]}">${n[3]}</div></div>`;
+    if(i<orchestr.length-1)orcHtml+=`<div class="arrow">→</div>`;
+  });
+  orcHtml+=`</div>`;
+
+  let tblHtml='<table><thead><tr>';
+  (r.columns||['客户','消费总额','发票数']).forEach(c=>tblHtml+=`<th>${c}</th>`);
+  tblHtml+='</tr></thead><tbody>';
+  (r.rows||[['Alice Johnson','¥15,650','3'],['Bob Smith','¥9,390','2'],['Eve Brown','¥22,000','1']]).forEach(row=>{
+    tblHtml+='<tr>';row.forEach((c,i)=>tblHtml+=`<td${i>0?' class="num"':''}>${c}</td>`);tblHtml+='</tr>';
+  });
+  tblHtml+='</tbody></table>';
+
+  const sql=r.sql||`-- DuckDB 跨源 JOIN
+ATTACH 'mysql_main' AS mysql (TYPE mysql);
+ATTACH 'http_finance' AS http (TYPE http_json);
+
+SELECT c.name, SUM(i.total_amount) as spent, COUNT(i.id) as invoices
+FROM mysql.customers c
+JOIN http.invoices i ON c.tax_no = i.buyer_tax_no
+WHERE i.issue_date >= '2026-04-01'
+GROUP BY c.name ORDER BY spent DESC`;
+
+  return `<div class="chat-item ai"><div class="chat-avatar">🚢</div><div class="chat-bubble" style="max-width:97%;padding:0;background:transparent;border:none">
+<p style="padding:10px 14px 0;line-height:1.6">${r.summary||'跨源查询结果：'}</p>
+<div class="panel-sm" style="margin:8px 14px;border:1px solid var(--border)">
+  <div class="panel-title">🔄 数据编排流程 <span class="tag tag-duck">DuckDB</span></div>
+  ${orcHtml}
+</div>
+<div class="result-box" style="margin:8px 14px">
+  <div class="result-header"><span>${(r.rows||[]).length} rows · ${r.time||'312ms'} · 跨3个数据源</span><span>mysql + http → DuckDB</span></div>
+  ${tblHtml}
+</div>
+<details class="expandable" style="padding:0 14px 10px"><summary>查看 DuckDB 跨源 SQL</summary><pre>${sql}</pre></details>
+<div style="padding:0 14px 10px;display:flex;gap:8px">
+  <button class="btn btn--sm btn--ghost">📋 复制</button>
+  <button class="btn btn--sm btn--ghost">📥 CSV</button>
+  <button class="btn btn--sm btn--ghost">⭐ 保存</button>
+</div></div></div>`;
+}
+
+function renderExploreEmpty(){
+  const isMulti=selectedSources.size>1;
+  const srcs=Array.from(selectedSources);
+  const q1=isMulti?'关联 MySQL 客户数据 和 API 发票数据，找出每个客户的消费总额':'上个季度销售额最高的三个产品是哪些？';
+  const q2=isMulti?'对比 PostgreSQL 和 MySQL 中相同的客户记录':'对比近六个月每月的新增客户数';
+  const q3=isMulti?'从 API 获取凭证数据，与 MySQL 订单关联':'哪些客户买了超过 5 次？';
+  const cls=isMulti?' cross':'';
+
+  document.getElementById('mainContent').innerHTML=`
+  <div class="empty">
+    <div class="glyph">${isMulti?'⛓':'≋'}</div>
+    <h3>${isMulti?'跨源数据探索':'用自然语言问你的数据'}</h3>
+    <p>${isMulti?'已选择 <strong>${srcs.length}</strong> 个数据源'+' ('+srcs.join(', ')+')，deepferry 会自动编排跨源查询':'不需要写 SQL，像聊天一样探索数据库'}</p>
+    <textarea class="nl-input" id="nlInput" placeholder="${esc(q1)}" rows="2" style="max-width:480px;margin:0 auto;display:block"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askQuestion()}"></textarea>
+    <div class="suggestions" style="justify-content:center;margin-top:12px">
+      <div class="suggestion${cls}" onclick="askSuggestion('${esc(q1)}')">${isMulti?'🔗 跨源关联':'📊 销售排行'}</div>
+      <div class="suggestion${cls}" onclick="askSuggestion('${esc(q2)}')">${isMulti?'🔄 跨库对比':'📈 客户趋势'}</div>
+      <div class="suggestion${cls}" onclick="askSuggestion('${esc(q3)}')">${isMulti?'📋 API+DB 组合':'👥 高频客户'}</div>
+      <div class="suggestion" onclick="document.querySelector('.source-item[data-source=\\'finance-api\\']').click();renderExplore()">+ 添加数据源</div>
+    </div>
+    <p style="margin-top:16px;font-size:10px;color:var(--text2)">数据源: ${srcs.join(' · ')}${isMulti?' → DuckDB 自动编排 JOIN':''}${!isMulti?' · 点击侧边栏多选以启用跨源查询':''}</p>
+  </div>`;
+  setTimeout(()=>{const inp=document.getElementById('nlInput');if(inp)inp.focus()},100);
+}
+
+function askQuestion(){
+  const inp=document.getElementById('nlInput');if(!inp||!inp.value.trim())return;
+  const q=inp.value.trim(),isMulti=selectedSources.size>1;
+  const steps=isMulti?[
+    {done:true,label:'识别数据源: '+Array.from(selectedSources).join(', ')},
+    {done:true,label:'匹配: MySQL.customers + HTTP./invoices'},
+    {done:false,label:'DuckDB 编排跨源 JOIN...'},
+    {done:false,label:'执行查询...'}
+  ]:[
+    {done:true,label:'识别数据源: mysql-main'},
+    {done:true,label:'匹配表: customers, orders, products'},
+    {done:false,label:'生成查询...'}
+  ];
+  chatHistory.push({question:q,loading:true,steps});
+  renderExplore();
+  setTimeout(()=>{
+    const item=chatHistory[chatHistory.length-1];
+    item.loading=false;
+    item.result={
+      columns:isMulti?['客户','消费总额','发票数']:['#','产品','销售额','占比','趋势'],
+      rows:isMulti?[['Alice Johnson','¥15,650','3'],['Bob Smith','¥9,390','2'],['Eve Brown','¥22,000','1'],['Grace Lee','¥2,650','1']]:
+        [['1','Laptop','¥89,000','44%','↑ 12.3% 🟢'],['2','Monitor','¥67,000','33%','↑ 8.7% 🟢'],['3','Mouse','¥45,000','22%','↓ 2.1% 🔴']],
+      summary:isMulti?'通过 DuckDB 关联 MySQL 客户表与 HTTP API 发票数据：':'根据上个季度数据，销售额最高的三个产品是：',
+      time:isMulti?'312ms':'234ms',
+      orchestra:isMulti?[
+        ['mysql-main','MySQL','SELECT *','7 rows','var(--yellow)'],
+        ['finance-api','HTTP','GET /invoices','8 rows','var(--teal)'],
+        ['DuckDB','引擎','JOIN tax_no','5 rows','var(--purple)']
+      ]:null
+    };
+    renderExplore();
+  },2500);
+}
+
+function askSuggestion(q){const inp=document.getElementById('nlInput');if(inp){inp.value=q;askQuestion();}}
+
+// =========================== MONITOR ===========================
+function renderMonitor(){
+  document.getElementById('mainContent').innerHTML=`
+  <div class="stats">
+    <div class="stat-card"><div class="stat-label">活跃 Agent</div><div class="stat-value">3</div><div class="stat-change up">●●●○○ 在线</div></div>
+    <div class="stat-card"><div class="stat-label">今日查询</div><div class="stat-value">247</div><div class="stat-change up">↑ 12% vs 昨日</div></div>
+    <div class="stat-card"><div class="stat-label">跨源查询占比</div><div class="stat-value">34%</div><div class="stat-change up">↑ 8% 增长</div></div>
+    <div class="stat-card"><div class="stat-label">错误率</div><div class="stat-value">0.4%</div><div class="stat-change up">🟢 正常</div></div>
+  </div>
+
+  <div class="panel" style="padding:0">
+    <div class="result-header"><span>实时 Activity Feed</span><span style="font-size:11px">筛选: <span style="color:var(--accent)">全部 ▾</span> · ⚡ 实时</span></div>
+
+    <div class="feed-item" onclick="renderExecDetail()">
+      <div class="agent-line">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>
+        <strong>Claude-3.5</strong><span style="color:var(--text2);font-size:10px">session #a3f2</span>
+        <span class="tag tag-duck" style="margin-left:auto;font-size:9px">跨源编排</span>
+      </div>
+      <div class="sql-box">-- DuckDB cross-source
+SELECT c.name, SUM(i.total_amount) FROM mysql.customers c
+JOIN http_finance.invoices i ON c.tax_no = i.buyer_tax_no
+GROUP BY c.name</div>
+      <div class="meta">
+        <span class="ok">✅ 5 rows</span><span>312ms</span>
+        <span style="color:var(--yellow)">mysql</span><span>+</span><span style="color:var(--teal)">http</span><span>→</span><span style="color:var(--purple)">DuckDB</span>
+        <a href="#" onclick="event.stopPropagation();switchMode('query')" style="margin-left:auto;font-size:11px">在查询中打开 ▸</a>
+      </div>
+    </div>
+
+    <div class="feed-item">
+      <div class="agent-line">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>
+        <strong>GPT-4o</strong><span style="color:var(--text2);font-size:10px">session #b7e1</span>
+      </div>
+      <div class="sql-box">SELECT status, COUNT(*) FROM orders WHERE order_date >='2026-06-01' GROUP BY status</div>
+      <div class="meta"><span class="ok">✅ 3 rows</span><span>45ms</span><span style="color:var(--yellow)">mysql</span></div>
+    </div>
+
+    <div class="feed-item">
+      <div class="agent-line">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--red)"></span>
+        <strong>Claude-3.5</strong><span style="color:var(--text2);font-size:10px">session #a3f2</span>
+        <span class="tag tag-http" style="margin-left:auto;font-size:9px">API 超时</span>
+      </div>
+      <div class="sql-box">GET /api/v1/invoices?date_from=2026-01-01</div>
+      <div class="meta"><span class="err">❌ TIMEOUT: finance-api 响应超过 5000ms</span><span>5000ms</span></div>
+    </div>
+
+    <div class="feed-item">
+      <div class="agent-line">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--border)"></span>
+        <strong>DeepSeek-V3</strong><span style="color:var(--text2);font-size:10px">idle</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderExecDetail(){
+  document.getElementById('mainContent').innerHTML=`
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:12px;color:var(--accent);cursor:pointer" onclick="renderMonitor()">← 返回 Feed</div>
+
+  <div class="panel-sm" style="margin-bottom:12px">
+    <div class="panel-title">Agent 对话 · Session #a3f2 · Claude-3.5</div>
+    <div class="chat-item user"><div class="chat-avatar">👤</div><div class="chat-bubble">帮我关联客户信息和发票数据，看看每个客户的消费情况</div></div>
+    <div class="chat-item ai"><div class="chat-avatar">🤖</div><div class="chat-bubble">好的，这需要跨源 JOIN——我先查 MySQL 客户表，再调 HTTP API 发票接口，用 DuckDB 关联</div></div>
+    <div style="text-align:center;font-size:10px;color:var(--text2);padding:4px 0">↓ 编排执行 ↓</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">🔄 跨源编排链路 · 总计 312ms</div>
+    <div class="orchestra" style="padding:8px 0 16px">
+      <div class="node mysql"><div class="node-label" style="color:var(--yellow)">MySQL</div><div class="node-sub">customers</div><div class="node-sub" style="color:var(--yellow)">7 rows</div></div>
+      <div class="arrow">→</div>
+      <div class="node http"><div class="node-label" style="color:var(--teal)">HTTP API</div><div class="node-sub">GET /invoices</div><div class="node-sub" style="color:var(--teal)">8 rows</div></div>
+      <div class="arrow">→</div>
+      <div class="node duck"><div class="node-label" style="color:var(--purple)">DuckDB</div><div class="node-sub">JOIN tax_no</div><div class="node-sub" style="color:var(--purple)">5 rows</div></div>
+    </div>
+    <div class="timeline">
+      <div class="timeline-item"><div class="timeline-bar mysql" style="width:50%"></div><span>MySQL 查询</span><div class="timeline-label">156ms</div></div>
+      <div class="timeline-item"><div class="timeline-bar http" style="width:80%"></div><span>HTTP API 调用</span><div class="timeline-label">250ms</div></div>
+      <div class="timeline-item"><div class="timeline-bar duck" style="width:20%"></div><span>DuckDB JOIN</span><div class="timeline-label">62ms</div></div>
+      <div style="font-size:10px;color:var(--text2);padding:4px 0">最大延迟在 HTTP API 端（250ms），建议考虑缓存</div>
+    </div>
+  </div>
+
+  <div class="panel-sm"><div class="panel-title">执行 SQL</div><pre style="font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--text)">ATTACH 'mysql_main' AS m (TYPE mysql);
+ATTACH 'http_finance' AS h (TYPE http_json);
+SELECT m.name, SUM(h.total_amount), COUNT(h.id)
+FROM m.customers c JOIN h.invoices i
+  ON c.tax_no = i.buyer_tax_no
+WHERE i.issue_date >= '2026-04-01'
+GROUP BY m.name ORDER BY 2 DESC</pre></div>
+
+  <div class="panel-sm"><div class="panel-title">返回数据 · 5 rows · 跨 3 数据源</div>
+  <table><thead><tr><th>客户</th><th>消费总额</th><th>发票数</th></tr></thead><tbody>
+    <tr><td>Alice Johnson</td><td class="num">¥15,650</td><td class="num">3</td></tr>
+    <tr><td>Bob Smith</td><td class="num">¥9,390</td><td class="num">2</td></tr>
+    <tr><td>Eve Brown</td><td class="num">¥22,000</td><td class="num">1</td></tr>
+  </tbody></table></div>
+
+  <div style="display:flex;gap:8px">
+    <button class="btn btn--sm btn--ghost">📋 复制</button>
+    <button class="btn btn--sm btn--ghost" onclick="switchMode('query')">▸ 在查询模式打开</button>
+    <button class="btn btn--sm btn--ghost">↓ 导出链路 JSON</button>
+  </div>`;
+}
+
+// =========================== QUERY ===========================
+function renderQuery(){
+  const isMulti=selectedSources.size>1;
+  const srcs=Array.from(selectedSources);
+  const placeholder=isMulti
+    ?`-- DuckDB 跨源查询\n-- 已连接: ${srcs.join(', ')}\n\nATTACH 'mysql_main' AS m (TYPE mysql);\nATTACH 'http_finance' AS h (TYPE http_json);\n\nSELECT m.c.name, SUM(h.i.total_amount)\nFROM m.customers c\nJOIN h.invoices i ON c.tax_no = i.buyer_tax_no\nGROUP BY m.c.name ORDER BY 2 DESC`
+    :`SELECT\n  c.name,\n  COUNT(o.id) as order_count,\n  SUM(o.total_amount) as total\nFROM customers c\nLEFT JOIN orders o ON c.id=o.customer_id\nGROUP BY c.id, c.name\nORDER BY total DESC`;
+
+  const lines=placeholder.split('\n');
+  let nums='';for(let i=1;i<=lines.length;i++)nums+=i+'\n';
+
+  const schemaHtml=isMulti?multiSchema():singleSchema();
+
+  document.getElementById('mainContent').innerHTML=`
+  <div class="split">
+    <div class="split-main">
+      ${isMulti?`<div style="font-size:11px;color:var(--purple);margin-bottom:8px;display:flex;align-items:center;gap:6px">
+        <span class="tag tag-duck">DuckDB 跨源模式</span>
+        ${srcs.map(s=>`<span class="tag tag-${s==='mysql-main'?'mysql':s==='pg-main'?'pg':'http'}">${s}</span>`).join('')}
+      </div>`:''}
+      <div class="sql-editor"><div class="ln">${nums}</div><div class="code" contenteditable="true" spellcheck="false">${esc(placeholder)}</div></div>
+      <div style="display:flex;gap:8px;margin:10px 0">
+        <button class="btn" onclick="renderQueryResult()">▸ 执行</button>
+        <button class="btn btn--ghost btn--sm">格式化</button>
+        <button class="btn btn--ghost btn--sm">AI 优化</button>
+        <span style="margin-left:auto;display:flex;gap:8px">
+          <button class="btn btn--ghost btn--sm">收藏 ▾</button>
+        </span>
+      </div>
+      <div class="panel" id="queryResults" style="display:none;padding:0">
+        <div class="result-header"><span>${isMulti?'5':'2'} rows · ${isMulti?'312':'48'}ms · ${isMulti?'跨源':'mysql-main'}</span><span>${isMulti?'mysql + http → DuckDB':''}</span></div>
+        <table><thead><tr>${isMulti?`<th>客户</th><th>消费总额</th><th>发票数</th><th>数据来源</th>`:`<th>name</th><th>order_count</th><th>total</th>`}</tr></thead><tbody>
+        ${isMulti?`<tr><td>Alice Johnson</td><td class="num">¥15,650</td><td class="num">3</td><td style="font-size:10px"><span class="tag tag-mysql">mysql</span> <span class="tag tag-http">http</span></td></tr>
+        <tr><td>Bob Smith</td><td class="num">¥9,390</td><td class="num">2</td><td style="font-size:10px"><span class="tag tag-mysql">mysql</span> <span class="tag tag-http">http</span></td></tr>
+        <tr><td>Eve Brown</td><td class="num">¥22,000</td><td class="num">1</td><td style="font-size:10px"><span class="tag tag-mysql">mysql</span> <span class="tag tag-http">http</span></td></tr>`:`<tr><td>Alice Johnson</td><td class="num">2</td><td class="num">¥3,800</td></tr><tr><td>Bob Smith</td><td class="num">2</td><td class="num">¥9,200</td></tr>`}
+        </tbody></table>
+        <div style="padding:8px 12px;display:flex;gap:10px;font-size:11px">
+          <span style="color:var(--accent);cursor:pointer">📊 图表</span>
+          <span style="color:var(--accent);cursor:pointer">📥 CSV</span>
+          ${isMulti?`<span style="color:var(--purple);cursor:pointer">🔍 查看编排流程</span>`:''}
+        </div>
+      </div>
+    </div>
+    <div class="split-side"><div class="panel" style="height:100%"><div class="panel-title">Schema ${isMulti?'· 跨源':''}</div>${schemaHtml}</div></div>
+  </div>`;
+}
+
+function singleSchema(){
+  return `<input class="nl-input" placeholder="🔍 搜索表/列..." style="margin-bottom:10px;padding:6px 10px;font-size:12px;min-height:unset">
+<div class="schema-tree">
+  <div class="source-hdr"><span class="source-dot mysql"></span> mysql-main</div>
+  <div class="tbl" style="color:var(--yellow)">📁 customers <span style="color:var(--text2);font-weight:400;font-size:10px">7 r</span></div>
+  <div class="col">├ id <span style="color:var(--yellow);font-size:9px">INT</span></div>
+  <div class="col">├ name <span style="color:var(--yellow);font-size:9px">VARCHAR</span></div>
+  <div class="col">├ status <span style="color:var(--yellow);font-size:9px">VARCHAR</span></div>
+  <div class="col">├ email <span style="color:var(--yellow);font-size:9px">VARCHAR</span></div>
+  <div class="col">└ metadata <span style="color:var(--yellow);font-size:9px">JSON</span></div>
+  <div class="tbl" style="color:var(--yellow)">📁 orders <span style="color:var(--text2);font-weight:400;font-size:10px">11 r</span></div>
+  <div class="tbl" style="color:var(--yellow)">📁 products <span style="color:var(--text2);font-weight:400;font-size:10px">10 r</span></div>
+  <div class="tbl" style="color:var(--yellow)">📁 order_items</div>
+  <div class="tbl" style="color:var(--yellow)">📁 product_reviews</div>
+</div>`;
+}
+
+function multiSchema(){
+  return `<input class="nl-input" placeholder="🔍 跨源搜索..." style="margin-bottom:10px;padding:6px 10px;font-size:12px;min-height:unset">
+<div class="schema-tree">
+  <div class="source-hdr"><span class="source-dot mysql"></span> mysql-main</div>
+  <div class="tbl" style="color:var(--yellow)">📁 customers <span style="color:var(--text2);font-weight:400;font-size:10px">7 r</span></div>
+  <div class="col">├ id, name, status, email</div>
+  <div class="col">└ metadata (JSON)</div>
+  <div class="tbl" style="color:var(--yellow)">📁 orders <span style="color:var(--text2);font-weight:400;font-size:10px">11 r</span></div>
+  <div class="col">└ id, customer_id, total, date</div>
+
+  <div class="source-hdr"><span class="source-dot http"></span> finance-api (HTTP)</div>
+  <div class="tbl" style="color:var(--teal)">🌐 /api/v1/invoices <span style="color:var(--text2);font-weight:400;font-size:10px">8 r</span></div>
+  <div class="col">├ invoice_no, seller_name</div>
+  <div class="col">├ buyer_tax_no, total_amount</div>
+  <div class="col">└ issue_date</div>
+  <div class="tbl" style="color:var(--teal)">🌐 /api/v1/vouchers <span style="color:var(--text2);font-weight:400;font-size:10px">5 r</span></div>
+  <div class="col">└ voucher_no, total_debit, total_credit</div>
+
+  <div class="source-hdr"><span class="source-dot pg"></span> pg-main</div>
+  <div class="tbl" style="color:var(--accent)">📁 users <span style="color:var(--text2);font-weight:400;font-size:10px">3 r</span></div>
+  <div class="col">└ id, email, role</div>
+
+  <div style="margin-top:10px;padding:8px;background:rgba(187,154,247,.08);border-radius:var(--radius);font-size:11px;line-height:1.5">
+    <span style="color:var(--purple);font-weight:600">🔗 关联提示</span><br>
+    customers.tax_no ⇄ invoices.buyer_tax_no<br>
+    orders.id ⇄ vouchers.[order_ref]
+  </div>
+</div>`;
+}
+
+function renderQueryResult(){const el=document.getElementById('queryResults');if(el)el.style.display='block';}
+
+// =========================== CMD PALETTE ===========================
+function toggleCmdPalette(){
+  const p=document.getElementById('cmdPalette');p.classList.toggle('show');
+  if(p.classList.contains('show')){document.getElementById('cmdInput').value='';document.getElementById('cmdInput').focus();filterCmd();}
+}
+function filterCmd(){
+  const q=document.getElementById('cmdInput').value.toLowerCase();
+  const items=[
+    {section:'数据源',name:'切换 MySQL + HTTP 跨源模式',shortcut:'',action:()=>{document.querySelectorAll('.source-item').forEach(s=>{const d=s.dataset.source;s.classList.toggle('selected',d==='mysql-main'||d==='finance-api');selectedSources=new Set(['mysql-main','finance-api'])});updateSourceDots();renderExplore();}},
+    {section:'数据源',name:'仅使用 mysql-main',shortcut:'',action:()=>{document.querySelectorAll('.source-item').forEach(s=>{s.classList.toggle('selected',s.dataset.source==='mysql-main');selectedSources=new Set(['mysql-main'])});updateSourceDots();renderExplore();}},
+    {section:'模式',name:'探索模式',shortcut:'Ctrl+1',action:()=>switchMode('explore')},
+    {section:'模式',name:'监控模式',shortcut:'Ctrl+2',action:()=>switchMode('monitor')},
+    {section:'模式',name:'查询模式',shortcut:'Ctrl+3',action:()=>switchMode('query')},
+    {section:'收藏',name:'客户+发票跨源分析',shortcut:'⭐',action:()=>switchMode('query')},
+  ];
+  const filtered=items.filter(i=>i.name.toLowerCase().includes(q));
+  let html='',ls='';
+  filtered.forEach((it,i)=>{
+    if(it.section!==ls){html+=`<div class="cmd-section">${it.section}</div>`;ls=it.section;}
+    html+=`<div class="cmd-result${i===0?' selected':''}" onclick="toggleCmdPalette();(${it.action.toString()})()"><span>${it.name}</span><span class="cmd-shortcut">${it.shortcut}</span></div>`;
+  });
+  document.getElementById('cmdResults').innerHTML=html||'<div class="cmd-section">无匹配</div>';
+}
+function handleCmdKey(e){if(e.key==='Escape')toggleCmdPalette();else if(e.key==='Enter'){const s=document.querySelector('.cmd-result.selected');if(s)s.click();}}
+
+document.addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();toggleCmdPalette();}
+  if((e.metaKey||e.ctrlKey)&&e.key==='1'){e.preventDefault();switchMode('explore');}
+  if((e.metaKey||e.ctrlKey)&&e.key==='2'){e.preventDefault();switchMode('monitor');}
+  if((e.metaKey||e.ctrlKey)&&e.key==='3'){e.preventDefault();switchMode('query');}
+  if((e.metaKey||e.ctrlKey)&&e.key==='Enter'&&currentMode==='query'){e.preventDefault();renderQueryResult();}
+});
+document.addEventListener('click',e=>{const p=document.getElementById('cmdPalette');if(p.classList.contains('show')&&!p.contains(e.target))p.classList.remove('show');});
+
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+renderExplore();
+</script>
+</body>
+</html>
