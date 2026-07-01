@@ -102,6 +102,8 @@ async def execute_query(
     trace_sink: TraceSink | None = None,
     session_id: str | None = None,
     scenario_id: str | None = None,
+    agent_name: str | None = None,
+    conversation_id: str | None = None,
 ) -> QueryResult:
     """Execute a SQL query against *source_id* and return structured results.
 
@@ -127,6 +129,12 @@ async def execute_query(
     scenario_id : str | None
         Active scenario UUID; attaches the execution to the scenario when
         *trace_sink* is provided.
+    agent_name : str | None
+        The calling agent identifier, recorded on the execution for trace
+        tagging and attribution.
+    conversation_id : str | None
+        The conversation / correlation ID (e.g. ``_conversation_id`` from
+        MCP meta), recorded on the execution for grouping.
 
     Returns
     -------
@@ -161,6 +169,9 @@ async def execute_query(
                     source_id,
                     scenario_id=scenario_id,
                     session_id=session_id,
+                    agent_name=agent_name,
+                    conversation_id=conversation_id,
+                    source_breakdown=getattr(result, "source_breakdown", None),
                 )
                 await trace_sink.finish_execution(execution)
             except Exception:
@@ -217,6 +228,8 @@ async def cross_query(
     trace_sink: TraceSink | None = None,
     session_id: str | None = None,
     scenario_id: str | None = None,
+    agent_name: str | None = None,
+    conversation_id: str | None = None,
 ) -> QueryResult:
     """Execute a cross-source SQL query via DuckDB federation.
 
@@ -242,6 +255,12 @@ async def cross_query(
         MCP session ID recorded on the execution when *trace_sink* is set.
     scenario_id : str | None
         Active scenario UUID to attach the execution to.
+    agent_name : str | None
+        The calling agent identifier, recorded on the execution for trace
+        tagging and attribution.
+    conversation_id : str | None
+        The conversation / correlation ID (e.g. ``_conversation_id`` from
+        MCP meta), recorded on the execution for grouping.
 
     Returns
     -------
@@ -269,6 +288,9 @@ async def cross_query(
                     "__cross__",
                     scenario_id=scenario_id,
                     session_id=session_id,
+                    agent_name=agent_name,
+                    conversation_id=conversation_id,
+                    source_breakdown=getattr(result, "source_breakdown", None),
                 )
                 await trace_sink.finish_execution(execution)
             except Exception:

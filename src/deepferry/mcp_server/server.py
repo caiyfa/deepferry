@@ -307,6 +307,17 @@ def create_server(
                     )
                 ]
 
+            # Extract agent / conversation metadata from MCP arguments.
+            # Clients pass these via _meta (MCP spec reserved) or a top-level
+            # _conversation_id key.  Both default to None when absent.
+            _meta = arguments.get("_meta") if isinstance(arguments, dict) else None
+            conversation_id: str | None = (
+                arguments.get("_conversation_id")
+                if isinstance(arguments, dict)
+                else None
+            ) or (None if _meta is None else _meta.get("conversation_id"))
+            agent_name: str | None = None if _meta is None else _meta.get("agent_name")
+
             if name == "list_sources":
                 sources = await list_sources(registry)
                 payload = [s.model_dump(mode="json") for s in sources]
@@ -332,6 +343,8 @@ def create_server(
                     trace_sink=trace_sink,
                     session_id=session_id,
                     scenario_id=arguments.get("scenario_id"),
+                    agent_name=agent_name,
+                    conversation_id=conversation_id,
                 )
                 return [types.TextContent(type="text", text=result.model_dump_json())]
 
@@ -364,6 +377,8 @@ def create_server(
                     trace_sink=trace_sink,
                     session_id=session_id,
                     scenario_id=arguments.get("scenario_id"),
+                    agent_name=agent_name,
+                    conversation_id=conversation_id,
                 )
                 return [types.TextContent(type="text", text=result.model_dump_json())]
 
@@ -469,6 +484,7 @@ async def run_http_server(
     trace_sink: TraceSink | None = None,
     config_path: Path | None = None,
     llm_config: LLMConfig | None = None,
+    data_dir: str | None = None,
 ) -> None:
     """Start the MCP server over Streamable HTTP.
 
@@ -534,6 +550,11 @@ async def run_http_server(
         return starlette.responses.JSONResponse({"status": "ok"})
 
     from deepferry.web.app import init_app
+    from deepferry.web.ws import (
+        AgentConnectionManager,
+        build_agent_ws_route,
+        subscribe_to_sink,
+    )
 
     config_app = init_app(
         registry,
@@ -541,11 +562,19 @@ async def run_http_server(
         trace_sink=trace_sink,
         config_path=config_path,
         llm_config=llm_config,
+        data_dir=data_dir,
     )
+
+    agent_ws_routes: list[starlette.routing.WebSocketRoute] = []
+    if trace_sink is not None:
+        ws_manager = AgentConnectionManager()
+        subscribe_to_sink(ws_manager, trace_sink)
+        agent_ws_routes.append(build_agent_ws_route(ws_manager))
 
     starlette_app = starlette.applications.Starlette(
         lifespan=lifespan,  # type: ignore[arg-type]
         routes=[
+            *agent_ws_routes,
             starlette.routing.Route("/health", health, methods=["GET"]),
             starlette.routing.Mount("/api", app=config_app),
             starlette.routing.Mount("/", app=session_manager.handle_request),

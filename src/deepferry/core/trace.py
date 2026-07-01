@@ -10,9 +10,11 @@ SQLite for the desktop execution-detail view — no OTLP export in this phase.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +22,8 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     import aiosqlite
+
+TraceEventCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 # ── Enums ───────────────────────────────────────────────────────────────
@@ -86,6 +90,9 @@ class Execution(BaseModel):
     started_at: int  # unix ms
     finished_at: int | None = None
     status: SpanStatus = SpanStatus.ok
+    agent_name: str | None = None
+    conversation_id: str | None = None
+    source_breakdown_json: str | None = None  # JSON-encoded dict[str, Any] of per-source row counts/metadata
     spans: list[Span] = Field(default_factory=list)
 
 
@@ -107,6 +114,17 @@ class TraceSink:
 
     def __init__(self, db: aiosqlite.Connection) -> None:
         self._db = db
+        self._subscribers: list[TraceEventCallback] = []
+
+    def add_subscriber(self, callback: TraceEventCallback) -> None:
+        """Register an async callback invoked after every trace mutation (best-effort, exceptions swallowed)."""
+        self._subscribers.append(callback)
+
+    async def _notify(self, event: dict[str, Any]) -> None:
+        """Best-effort fan-out to all subscribers; a subscriber exception is logged and swallowed."""
+        for cb in self._subscribers:
+            with contextlib.suppress(Exception):
+                await cb(event)  # trace events must never break the query path
 
     # ── schema ──────────────────────────────────────────────────────
 
@@ -201,14 +219,27 @@ class TraceSink:
                 ON query_scenarios(session_id, started_at)
             """
         )
+        # ── Schema migration: add new columns if missing ──────────────
+        cursor = await db.execute("PRAGMA table_info(trace_executions)")
+        existing_cols = {row[1] for row in await cursor.fetchall()}
+        for col_name in ("agent_name", "conversation_id", "source_breakdown_json"):
+            if col_name not in existing_cols:
+                await db.execute(
+                    f"ALTER TABLE trace_executions ADD COLUMN {col_name} TEXT"
+                )
         await db.commit()
 
     # ── execution lifecycle ──────────────────────────────────────────
 
     async def start_execution(
-        self, source_id: str, root_query_id: int | None = None,
+        self,
+        source_id: str,
+        root_query_id: int | None = None,
         scenario_id: str | None = None,
         session_id: str | None = None,
+        agent_name: str | None = None,
+        conversation_id: str | None = None,
+        source_breakdown: dict[str, Any] | None = None,
     ) -> Execution:
         """Create a new execution and return it with a DB-assigned id.
 
@@ -222,6 +253,12 @@ class TraceSink:
             Optional scenario UUID this execution belongs to.
         session_id : str | None
             Optional MCP session ID captured from the transport header.
+        agent_name : str | None
+            Optional agent name for attribution.
+        conversation_id : str | None
+            Optional conversation ID for grouping.
+        source_breakdown : dict[str, Any] | None
+            Optional per-source row counts / metadata, serialised to JSON.
 
         Returns
         -------
@@ -229,23 +266,53 @@ class TraceSink:
             The newly created execution with ``id``, ``started_at`` populated.
         """
         now_ms = int(time.time() * 1000)
+        breakdown_json = (
+            json.dumps(source_breakdown, ensure_ascii=False)
+            if source_breakdown is not None
+            else None
+        )
         cursor = await self._db.execute(
             "INSERT INTO trace_executions "
-            "(root_query_id, source_id, scenario_id, session_id, started_at, status) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (root_query_id, source_id, scenario_id, session_id, now_ms, SpanStatus.ok.value),
+            "(root_query_id, source_id, scenario_id, session_id, started_at, status, "
+            "agent_name, conversation_id, source_breakdown_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                root_query_id,
+                source_id,
+                scenario_id,
+                session_id,
+                now_ms,
+                SpanStatus.ok.value,
+                agent_name,
+                conversation_id,
+                breakdown_json,
+            ),
         )
         await self._db.commit()
         execution_id = cursor.lastrowid
         assert execution_id is not None
-        return Execution(
+        execution = Execution(
             id=execution_id,
             root_query_id=root_query_id,
             source_id=source_id,
             scenario_id=scenario_id,
             session_id=session_id,
             started_at=now_ms,
+            agent_name=agent_name,
+            conversation_id=conversation_id,
+            source_breakdown_json=breakdown_json,
         )
+        await self._notify(
+            {
+                "type": "execution_started",
+                "execution_id": execution.id,
+                "source_id": execution.source_id,
+                "agent_name": execution.agent_name,
+                "conversation_id": execution.conversation_id,
+                "started_at": execution.started_at,
+            }
+        )
+        return execution
 
     async def finish_execution(
         self, execution: Execution, status: SpanStatus = SpanStatus.ok
@@ -270,8 +337,14 @@ class TraceSink:
         await self._db.commit()
         execution.finished_at = now_ms
         execution.status = status
-
-    # ── span lifecycle ────────────────────────────────────────────────
+        await self._notify(
+            {
+                "type": "execution_finished",
+                "execution_id": execution.id,
+                "status": status.value,
+                "finished_at": now_ms,
+            }
+        )
 
     async def add_span(self, execution: Execution, span: Span) -> Span:
         """Insert a span under *execution* and return it with a DB-assigned id.
@@ -315,7 +388,7 @@ class TraceSink:
         await self._db.commit()
         span_id = cursor.lastrowid
         assert span_id is not None
-        return Span(
+        new_span = Span(
             id=span_id,
             execution_id=execution.id,
             parent_span_id=span.parent_span_id,
@@ -325,6 +398,16 @@ class TraceSink:
             started_at=now_ms,
             attributes=span.attributes,
         )
+        await self._notify(
+            {
+                "type": "span_added",
+                "execution_id": execution.id,
+                "span_id": new_span.id,
+                "span_kind": new_span.span_kind.value,
+                "span_name": new_span.span_name,
+            }
+        )
+        return new_span
 
     async def finish_span(
         self, span: Span, status: SpanStatus = SpanStatus.ok
@@ -348,6 +431,13 @@ class TraceSink:
         await self._db.commit()
         span.finished_at = now_ms
         span.status = status
+        await self._notify(
+            {
+                "type": "span_finished",
+                "span_id": span.id,
+                "status": status.value,
+            }
+        )
 
     # ── queries ───────────────────────────────────────────────────────
 
@@ -370,7 +460,8 @@ class TraceSink:
         """
         cursor = await self._db.execute(
             "SELECT id, root_query_id, source_id, scenario_id, session_id, "
-            "started_at, finished_at, status "
+            "started_at, finished_at, status, agent_name, conversation_id, "
+            "source_breakdown_json "
             "FROM trace_executions WHERE id = ?",
             (execution_id,),
         )
@@ -387,6 +478,9 @@ class TraceSink:
             started_at=row[5],
             finished_at=row[6],
             status=SpanStatus(row[7]),
+            agent_name=row[8],
+            conversation_id=row[9],
+            source_breakdown_json=row[10],
         )
 
         cursor = await self._db.execute(
@@ -436,7 +530,8 @@ class TraceSink:
         if source_id is not None:
             cursor = await self._db.execute(
                 "SELECT id, root_query_id, source_id, scenario_id, session_id, "
-                "started_at, finished_at, status "
+                "started_at, finished_at, status, agent_name, conversation_id, "
+                "source_breakdown_json "
                 "FROM trace_executions WHERE source_id = ? "
                 "ORDER BY started_at DESC, id DESC LIMIT ?",
                 (source_id, limit),
@@ -444,7 +539,8 @@ class TraceSink:
         else:
             cursor = await self._db.execute(
                 "SELECT id, root_query_id, source_id, scenario_id, session_id, "
-                "started_at, finished_at, status "
+                "started_at, finished_at, status, agent_name, conversation_id, "
+                "source_breakdown_json "
                 "FROM trace_executions ORDER BY started_at DESC, id DESC LIMIT ?",
                 (limit,),
             )
@@ -459,6 +555,9 @@ class TraceSink:
                 started_at=row[5],
                 finished_at=row[6],
                 status=SpanStatus(row[7]),
+                agent_name=row[8],
+                conversation_id=row[9],
+                source_breakdown_json=row[10],
             )
             for row in rows
         ]
@@ -485,7 +584,8 @@ class TraceSink:
         """
         cursor = await self._db.execute(
             "SELECT id, root_query_id, source_id, scenario_id, session_id, "
-            "started_at, finished_at, status "
+            "started_at, finished_at, status, agent_name, conversation_id, "
+            "source_breakdown_json "
             "FROM trace_executions WHERE scenario_id = ? "
             "ORDER BY started_at DESC, id DESC LIMIT ?",
             (scenario_id, limit),
@@ -501,6 +601,9 @@ class TraceSink:
                 started_at=row[5],
                 finished_at=row[6],
                 status=SpanStatus(row[7]),
+                agent_name=row[8],
+                conversation_id=row[9],
+                source_breakdown_json=row[10],
             )
             for row in rows
         ]

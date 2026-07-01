@@ -7,6 +7,8 @@ FK linking to query_history.
 
 from __future__ import annotations
 
+from typing import Any
+
 import aiosqlite
 import pytest
 
@@ -534,3 +536,107 @@ async def test_init_schema_idempotent(sink: TraceSink) -> None:
     await TraceSink.init_schema(sink._db)
     # If we got here without an exception, it's idempotent.
     assert True
+
+
+# ── new columns round-trip ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_new_execution_fields_roundtrip(sink: TraceSink) -> None:
+    """agent_name, conversation_id, source_breakdown_json persist and return."""
+    breakdown = {"mysql.orders": 42, "pg.users": 7}
+    exec_ = await sink.start_execution(
+        "mysql.orders",
+        agent_name="test-agent",
+        conversation_id="conv-abc",
+        source_breakdown=breakdown,
+    )
+    assert exec_.agent_name == "test-agent"
+    assert exec_.conversation_id == "conv-abc"
+    assert exec_.source_breakdown_json is not None
+
+    fetched = await sink.get_execution(exec_.id)
+    assert fetched is not None
+    assert fetched.agent_name == "test-agent"
+    assert fetched.conversation_id == "conv-abc"
+    assert fetched.source_breakdown_json == exec_.source_breakdown_json
+
+
+@pytest.mark.asyncio
+async def test_new_execution_fields_defaults(sink: TraceSink) -> None:
+    """New fields default to None when not provided."""
+    exec_ = await sink.start_execution("mysql.test")
+    assert exec_.agent_name is None
+    assert exec_.conversation_id is None
+    assert exec_.source_breakdown_json is None
+
+    fetched = await sink.get_execution(exec_.id)
+    assert fetched is not None
+    assert fetched.agent_name is None
+    assert fetched.conversation_id is None
+    assert fetched.source_breakdown_json is None
+
+
+@pytest.mark.asyncio
+async def test_source_breakdown_serialization(sink: TraceSink) -> None:
+    """source_breakdown dict is JSON-serialized and stored as source_breakdown_json."""
+    import json
+
+    breakdown = {"mysql.orders": {"rows": 150, "cached": True}, "pg.users": 99}
+    exec_ = await sink.start_execution(
+        "orch.flow", source_breakdown=breakdown
+    )
+    assert exec_.source_breakdown_json is not None
+    parsed = json.loads(exec_.source_breakdown_json)
+    assert parsed == breakdown
+
+    fetched = await sink.get_execution(exec_.id)
+    assert fetched is not None
+    assert fetched.source_breakdown_json is not None
+    parsed2 = json.loads(fetched.source_breakdown_json)
+    assert parsed2 == breakdown
+
+
+# ── event broker ───────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_add_subscriber_receives_execution_started(sink: TraceSink) -> None:
+    """Subscriber callback is invoked with execution_started event."""
+    events: list[dict[str, Any]] = []
+
+    async def collector(event: dict[str, Any]) -> None:
+        events.append(event)
+
+    sink.add_subscriber(collector)
+
+    exec_ = await sink.start_execution(
+        "pg.users",
+        agent_name="agent-1",
+        conversation_id="conv-1",
+    )
+
+    assert len(events) >= 1
+    ev = events[0]
+    assert ev["type"] == "execution_started"
+    assert ev["execution_id"] == exec_.id
+    assert ev["source_id"] == "pg.users"
+    assert ev["agent_name"] == "agent-1"
+    assert ev["conversation_id"] == "conv-1"
+
+
+@pytest.mark.asyncio
+async def test_subscriber_exception_does_not_break_trace(sink: TraceSink) -> None:
+    """A subscriber that raises does not prevent trace operations."""
+
+    async def bad_callback(event: dict[str, Any]) -> None:
+        raise RuntimeError("subscriber boom")
+
+    sink.add_subscriber(bad_callback)
+
+    # Must not raise
+    exec_ = await sink.start_execution("mysql.test")
+    assert exec_.id > 0
+
+    await sink.finish_execution(exec_, SpanStatus.ok)
+    assert exec_.finished_at is not None
