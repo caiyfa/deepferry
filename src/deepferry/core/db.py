@@ -157,6 +157,21 @@ async def init_db(db_path: str) -> None:
             """
         )
 
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS saved_queries (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT NOT NULL UNIQUE,
+                description  TEXT,
+                source_ids   TEXT NOT NULL,
+                statement    TEXT NOT NULL,
+                tags         TEXT,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+
         await db.commit()
 
 

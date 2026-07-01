@@ -132,6 +132,33 @@ class LLMClient(ABC):
         ...
 
     @abstractmethod
+    async def complete(self, system: str, user: str) -> str:
+        """Send a generic chat completion and return the raw text response.
+
+        Parameters
+        ----------
+        system : str
+            The system message (instructions for the assistant).
+        user : str
+            The user message (the task or question).
+
+        Returns
+        -------
+        str
+            The raw text content from the LLM response.
+
+        Raises
+        ------
+        LLMUnavailableError
+            When the LLM API is unreachable or returns an unexpected error.
+        LLMTimeoutError
+            When the API call exceeds the configured timeout.
+        LLMInvalidSQLError
+            When the LLM response is empty or cannot be processed.
+        """
+        ...
+
+    @abstractmethod
     async def health_check(self) -> bool:
         """Verify connectivity to the LLM provider.
 
@@ -234,6 +261,46 @@ class OpenAICompatibleClient(LLMClient):
             model=model,
             tokens_used=tokens_used,
         )
+
+    async def complete(self, system: str, user: str) -> str:
+        """Send a generic chat completion and return the raw text content.
+
+        Uses JSON object response format for structured output.
+        """
+
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+
+        try:
+            completion = await self._client.chat.completions.create(
+                model=self._config.model,
+                messages=messages,
+                max_tokens=self._config.max_tokens,
+                temperature=self._config.temperature,
+                response_format=ResponseFormatJSONObject(type="json_object"),
+            )
+        except APITimeoutError as exc:
+            raise LLMTimeoutError(
+                message=f"LLM call to {self._config.provider} timed out after "
+                f"{self._config.timeout}s",
+                suggestion="Increase the timeout in config.toml or check if the "
+                "LLM service is overloaded",
+            ) from exc
+        except APIConnectionError as exc:
+            raise LLMUnavailableError(
+                message=f"Cannot reach {self._config.provider} at "
+                f"{self._config.base_url}",
+                suggestion="Verify the LLM service is running and the base_url is correct",
+            ) from exc
+        except APIError as exc:
+            raise LLMUnavailableError(
+                message=f"{self._config.provider} API error: {exc}",
+                suggestion="Check your API key and account status",
+            ) from exc
+
+        return completion.choices[0].message.content or ""
 
     async def health_check(self) -> bool:
         """Send a minimal API call to verify connectivity."""

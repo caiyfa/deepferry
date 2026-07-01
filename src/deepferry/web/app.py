@@ -18,7 +18,7 @@ import aiosqlite
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from deepferry.config import LLMConfig
+from deepferry.config import LLMConfig, StorageConfig
 from deepferry.core.errors import SourceNotFoundError
 from deepferry.core.trace import TraceSink
 from deepferry.datasources.registry import SourceRegistry
@@ -46,6 +46,15 @@ _llm_config: LLMConfig | None = None
 Used by the Explore API endpoints (``POST /api/explore`` etc.) to instantiate
 the LLM client for natural-language-to-SQL generation.
 """
+
+_data_dir: str | None = None
+"""Module-level data directory (optional), set by ``init_app()``.
+
+Used by dataset endpoints to persist query results as versioned snapshots.
+"""
+
+_routers_included: bool = False
+"""Idempotency guard so ``init_app()`` only mounts routers once on the app."""
 
 
 def get_registry() -> SourceRegistry:
@@ -101,6 +110,31 @@ def get_llm_config() -> LLMConfig | None:
     Explore API endpoints return 503 in that case.
     """
     return _llm_config
+
+
+def get_data_dir() -> str:
+    """FastAPI dependency returning the data directory for dataset storage.
+
+    Raises ``RuntimeError`` if ``init_app()`` was not called with ``data_dir``.
+    """
+    if _data_dir is None:
+        raise RuntimeError(
+            "Data directory not set — call init_app() with data_dir to enable "
+            "dataset endpoints."
+        )
+    return _data_dir
+
+
+def get_storage_config() -> StorageConfig:
+    """FastAPI dependency returning the ``StorageConfig``.
+
+    Raises ``RuntimeError`` if ``init_app()`` was not called with storage config.
+    """
+    if _data_dir is None:
+        raise RuntimeError(
+            "Storage config not set — call init_app() with storage config."
+        )
+    return StorageConfig(data_dir=_data_dir)
 
 
 @asynccontextmanager
@@ -181,6 +215,7 @@ def init_app(
     trace_sink: TraceSink | None = None,
     config_path: Path | None = None,
     llm_config: LLMConfig | None = None,
+    data_dir: str | None = None,
 ) -> FastAPI:
     """Initialise and return the FastAPI application with the given registry.
 
@@ -211,28 +246,38 @@ def init_app(
     FastAPI
         The configured application instance.
     """
-    global _registry, _db, _trace_sink, _config_path, _llm_config
+    global _registry, _db, _trace_sink, _config_path, _llm_config, _data_dir
+    global _routers_included
     _registry = registry
     _db = db
     _trace_sink = trace_sink
     _config_path = config_path
     _llm_config = llm_config
+    _data_dir = data_dir
 
     # Imported lazily here (not at module top-level) to avoid a circular
     # import: every route module imports ``get_registry`` / ``get_db`` /
     # ``get_trace_sink`` from this module.
+    from deepferry.web.routes.agents import router as agents_router
     from deepferry.web.routes.config import router as config_router
+    from deepferry.web.routes.datasets import router as datasets_router
     from deepferry.web.routes.executions import router as executions_router
     from deepferry.web.routes.explore import router as explore_router
     from deepferry.web.routes.history import router as history_router
     from deepferry.web.routes.query import router as query_router
+    from deepferry.web.routes.saved import router as saved_router
     from deepferry.web.routes.schema import router as schema_router
 
-    app.include_router(query_router)
-    app.include_router(schema_router)
-    app.include_router(history_router)
-    app.include_router(executions_router)
-    app.include_router(config_router)
-    app.include_router(explore_router)
+    if not _routers_included:
+        _routers_included = True
+        app.include_router(agents_router)
+        app.include_router(saved_router)
+        app.include_router(query_router)
+        app.include_router(schema_router)
+        app.include_router(history_router)
+        app.include_router(executions_router)
+        app.include_router(config_router)
+        app.include_router(explore_router)
+        app.include_router(datasets_router)
 
     return app

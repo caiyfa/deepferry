@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 import anyio
@@ -87,6 +88,7 @@ async def _run_mcp_server(args: argparse.Namespace) -> None:
                 engine=engine,
                 config_path=args.config,
                 llm_config=config.llm,
+                data_dir=os.path.expanduser(config.storage.data_dir),
             )
         else:
             from deepferry.mcp_server.server import run_stdio_server

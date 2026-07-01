@@ -28,6 +28,10 @@ password = "${MYSQL_PASSWORD}"
 # temperature = 0.1                              # low for deterministic SQL
 # timeout = 15                                   # seconds
 
+# ── Storage settings (optional, defaults to ~/.deepferry) ────────────────
+# [storage]
+# data_dir = "~/.deepferry"                      # base dir for datasets, caches
+
 # ── PostgreSQL data source ──────────────────────────────────────────────
 [[sources]]
 id = "pg-analytics"

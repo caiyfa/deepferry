@@ -105,7 +105,7 @@ async def test_sse_stream_yields_correct_events() -> None:
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/api/explore",
+                "/explore",
                 json={
                     "question": "Show me all customers",
                     "source_ids": ["mysql-main"],
@@ -137,7 +137,7 @@ async def test_sse_llm_not_configured_returns_503() -> None:
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/api/explore",
+            "/explore",
             json={"question": "test", "source_ids": ["mysql-main"]},
         )
     assert response.status_code == 503
@@ -165,7 +165,7 @@ async def test_sse_drop_table_sql_is_blocked() -> None:
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/api/explore",
+                "/explore",
                 json={
                     "question": "Drop the customers table",
                     "source_ids": ["mysql-main"],
@@ -194,7 +194,7 @@ async def test_sse_source_not_found_emits_error() -> None:
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/api/explore",
+                "/explore",
                 json={
                     "question": "Show me data",
                     "source_ids": ["nonexistent"],
@@ -222,7 +222,7 @@ async def test_sse_llm_unavailable_emits_error() -> None:
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/api/explore",
+                "/explore",
                 json={
                     "question": "Show me data",
                     "source_ids": ["mysql-main"],
@@ -257,7 +257,7 @@ async def test_sse_with_conversation_history() -> None:
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/api/explore",
+                "/explore",
                 json={
                     "question": "Show me customers with Gmail addresses",
                     "source_ids": ["mysql-main"],
@@ -286,7 +286,7 @@ async def test_sse_empty_question_rejected() -> None:
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/api/explore",
+            "/explore",
             json={"question": "", "source_ids": ["mysql-main"]},
         )
     assert response.status_code == 422
@@ -300,7 +300,7 @@ async def test_sse_empty_source_ids_rejected() -> None:
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/api/explore",
+            "/explore",
             json={"question": "test", "source_ids": []},
         )
     assert response.status_code == 422
@@ -314,7 +314,7 @@ async def test_suggestions_returns_at_least_3_items() -> None:
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.get(
-            "/api/explore/suggestions",
+            "/explore/suggestions",
             params={"source_ids": "mysql-main"},
         )
     assert response.status_code == 200
@@ -332,7 +332,7 @@ async def test_suggestions_empty_source_ids() -> None:
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.get(
-            "/api/explore/suggestions",
+            "/explore/suggestions",
             params={"source_ids": ""},
         )
     assert response.status_code == 200
@@ -362,7 +362,7 @@ async def test_suggestions_with_multiple_sources() -> None:
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.get(
-            "/api/explore/suggestions",
+            "/explore/suggestions",
             params={"source_ids": "mysql-main,pg-analytics"},
         )
     assert response.status_code == 200
@@ -383,7 +383,7 @@ async def test_suggestions_falls_back_when_llm_fails() -> None:
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.get(
-                "/api/explore/suggestions",
+                "/explore/suggestions",
                 params={"source_ids": "mysql-main"},
             )
     assert response.status_code == 200

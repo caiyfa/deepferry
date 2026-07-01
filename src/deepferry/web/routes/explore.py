@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/explore")
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────
@@ -330,7 +330,7 @@ async def _explore_stream(
 # ── Routes ───────────────────────────────────────────────────────────────
 
 
-@router.post("/explore")
+@router.post("")
 async def explore(
     body: ExploreRequest,
     registry: SourceRegistry = Depends(get_registry),
@@ -373,7 +373,7 @@ async def explore(
     )
 
 
-@router.get("/explore/suggestions")
+@router.get("/suggestions")
 async def suggestions(
     source_ids: str = Query(
         ...,

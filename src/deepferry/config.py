@@ -146,6 +146,17 @@ class LLMConfig:
 
 
 @dataclass
+class StorageConfig:
+    """Storage settings parsed from the optional ``[storage]`` section.
+
+    ``data_dir`` is the base directory for dataset files, query caches, and
+    other on-disk artifacts.  Defaults to ``~/.deepferry`` when unset.
+    """
+
+    data_dir: str = "~/.deepferry"
+
+
+@dataclass
 class AppConfig:
     """The fully-resolved application configuration.
 
@@ -156,6 +167,7 @@ class AppConfig:
     sources: list[SourceConfig]
     server: ServerConfig = field(default_factory=ServerConfig)
     llm: LLMConfig | None = None
+    storage: StorageConfig = field(default_factory=StorageConfig)
 
 
 # ── Required fields per source type ───────────────────────────────────────
@@ -263,6 +275,12 @@ def load_config(path: str | Path) -> AppConfig:
             timeout=int(llm_raw.get("timeout", 15)),
         )
 
+    # ── Parse [storage] section (optional) ─────────────────────────────────
+    storage_raw = raw.get("storage", {})
+    storage = StorageConfig(
+        data_dir=str(storage_raw.get("data_dir", "~/.deepferry")),
+    )
+
     # ── Parse [[sources]] blocks ──────────────────────────────────────────
     sources_raw: list[dict[str, Any]] = raw.get("sources", [])
     if not isinstance(sources_raw, list):
@@ -309,7 +327,7 @@ def load_config(path: str | Path) -> AppConfig:
         _validate_source(sc)
         sources.append(sc)
 
-    return AppConfig(sources=sources, server=server, llm=llm)
+    return AppConfig(sources=sources, server=server, llm=llm, storage=storage)
 
 
 # ── TOML write helpers ───────────────────────────────────────────────────

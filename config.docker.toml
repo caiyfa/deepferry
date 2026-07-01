@@ -37,6 +37,10 @@ password = "${POSTGRES_PASSWORD:testpass}"
 # temperature = 0.1
 # timeout = 15
 
+# ── 存储设置（可选，默认 ~/.deepferry）──────────────────────────────────
+# [storage]
+# data_dir = "/data/deepferry"                   # Docker 内的数据目录
+
 # ── HTTP API 数据源示例 ────────────────────────────────────────────────
 # [[sources]]
 # id = "json-api"
