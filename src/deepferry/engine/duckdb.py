@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import contextlib
+import json
+import os
 import re
+import tempfile
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -47,6 +50,7 @@ class DuckDBEngine:
         self._registry: SourceRegistry = registry
         self._conn: duckdb.DuckDBPyConnection | None = None
         self._attached: set[str] = set()
+        self._temp_files: list[str] = []
 
     async def connect(self) -> None:
         self._conn = duckdb.connect(":memory:")
@@ -58,6 +62,10 @@ class DuckDBEngine:
             self._conn.close()
             self._conn = None
             self._attached.clear()
+        for path in self._temp_files:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+        self._temp_files.clear()
 
     # ── Main entry point ─────────────────────────────────────────────────
 
@@ -96,6 +104,16 @@ class DuckDBEngine:
         await self._attach_sql_sources(refs["sql"], registry)
         await self._materialize_http_sources(refs["http"], registry)
 
+        source_breakdown: dict[str, dict[str, Any]] = {}
+        for sid in refs["sql"]:
+            source_breakdown[sid] = {"type": "sql", "attached": True}
+        for sid, tables in refs["http"].items():
+            source_breakdown[sid] = {
+                "type": "http",
+                "materialized": True,
+                "tables": sorted(tables),
+            }
+
         transformed = _transform_sql(query.statement, refs, registry)
 
         self._enforce_limit(transformed, query.max_rows)
@@ -125,6 +143,7 @@ class DuckDBEngine:
             rows=rows,
             row_count=len(rows),
             execution_time_ms=round(elapsed, 3),
+            source_breakdown=source_breakdown,
         )
 
     # ── SQL source ATTACH ────────────────────────────────────────────────
@@ -167,20 +186,35 @@ class DuckDBEngine:
                 )
                 result = await source.execute(request)
 
-                col_defs = ", ".join(
-                    f"{_quote_ident(c.name)} {_to_duckdb_type(c.type)}"
-                    for c in result.columns
-                )
-                conn.execute(
-                    f"CREATE OR REPLACE TABLE {_quote_ident(source_id)}.{_quote_ident(table_name)} "
-                    f"({col_defs})"
-                )
-                if result.rows:
-                    rows_values = _build_insert_values(result.columns, result.rows)
-                    conn.execute(
-                        f"INSERT INTO {_quote_ident(source_id)}.{_quote_ident(table_name)} VALUES "
-                        + ", ".join(rows_values)
+                if not result.rows:
+                    col_selects = ", ".join(
+                        f"CAST(NULL AS {_to_duckdb_type(c.type)}) "
+                        f"AS {_quote_ident(c.name)}"
+                        for c in result.columns
                     )
+                    select_body = col_selects or "1 AS _placeholder"
+                    conn.execute(
+                        f"CREATE OR REPLACE VIEW "
+                        f"{_quote_ident(source_id)}.{_quote_ident(table_name)} AS "
+                        f"SELECT {select_body} WHERE 1=0"
+                    )
+                    continue
+
+                fd, path = tempfile.mkstemp(suffix=".json", text=True)
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                        json.dump(result.rows, fh, ensure_ascii=False, default=str)
+                    path_literal = "'" + path.replace("'", "''") + "'"
+                    conn.execute(
+                        f"CREATE OR REPLACE VIEW "
+                        f"{_quote_ident(source_id)}.{_quote_ident(table_name)} AS "
+                        f"SELECT * FROM read_json_auto({path_literal})"
+                    )
+                    self._temp_files.append(path)
+                except Exception:
+                    with contextlib.suppress(OSError):
+                        os.unlink(path)
+                    raise
 
     # ── Safety ───────────────────────────────────────────────────────────
 
@@ -297,27 +331,3 @@ def _to_duckdb_type(type_str: str) -> str:
 
 def _quote_ident(name: str) -> str:
     return f'"{name}"'
-
-
-def _build_insert_values(
-    columns: list[ColumnMeta],
-    rows: list[dict[str, Any]],
-) -> list[str]:
-    values: list[str] = []
-    for row in rows:
-        parts: list[str] = []
-        for col in columns:
-            val = row.get(col.name)
-            if val is None:
-                parts.append("NULL")
-            elif isinstance(val, str):
-                escaped = val.replace("'", "''")
-                parts.append(f"'{escaped}'")
-            elif isinstance(val, bool):
-                parts.append("TRUE" if val else "FALSE")
-            elif isinstance(val, (int, float)):
-                parts.append(str(val))
-            else:
-                parts.append(f"'{str(val).replace("'", "''")}'")
-        values.append(f"({', '.join(parts)})")
-    return values

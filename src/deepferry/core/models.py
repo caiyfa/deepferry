@@ -91,6 +91,7 @@ class StructuredResult(BaseModel):
     rows: list[dict[str, Any]]
     row_count: int
     execution_time_ms: float
+    source_breakdown: dict[str, dict[str, Any]] | None = None
 
 
 class QueryResult(BaseModel):
