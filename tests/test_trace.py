@@ -7,19 +7,15 @@ FK linking to query_history.
 
 from __future__ import annotations
 
-import json
-
 import aiosqlite
 import pytest
 
 from deepferry.core.trace import (
-    Execution,
     Span,
     SpanKind,
     SpanStatus,
     TraceSink,
 )
-
 
 # ── helpers ─────────────────────────────────────────────────────────────
 
@@ -342,7 +338,7 @@ async def test_span_attributes_roundtrip(sink: TraceSink) -> None:
         "cached": True,
         "latency_pct": 99.5,
     }
-    span = await sink.add_span(
+    await sink.add_span(
         exec_,
         Span(
             id=0,
@@ -396,7 +392,7 @@ async def test_span_attributes_special_chars(sink: TraceSink) -> None:
         "newlines": "line1\nline2",
         "backslash": r"c:\path\to\file",
     }
-    span = await sink.add_span(
+    await sink.add_span(
         exec_,
         Span(
             id=0, execution_id=0,

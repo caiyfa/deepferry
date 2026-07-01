@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import time
 from typing import Any
-from unittest.mock import ANY, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
-import httpx2
 import pytest
 
 from deepferry.config import SourceConfig
 from deepferry.core.errors import ConfigError, DataSourceError
-from deepferry.core.models import ColumnMeta, QueryRequest, StructuredResult
+from deepferry.core.models import QueryRequest
 from deepferry.core.trace import (
     Execution,
     Span,
@@ -33,7 +32,6 @@ from deepferry.datasources.orchestrated import (
     _detect_undefined_bindings,
     interpolate,
 )
-
 
 # ── Helpers ────────────────────────────────────────────────────────────
 

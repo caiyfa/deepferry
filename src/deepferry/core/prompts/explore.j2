@@ -1,0 +1,34 @@
+{{ system_prompt }}
+
+---
+
+{%- if conversation_history %}
+## Previous Conversation
+
+{%- for entry in conversation_history %}
+Q: {{ entry.question }}
+A: {{ entry.answer }}
+{%- endfor %}
+
+---
+{%- endif %}
+{%- if schema_context %}
+## Schema Context
+
+{{ schema_context }}
+
+{%- endif -%}
+{%- if few_shot_examples %}
+## Example Queries
+
+{%- for example in few_shot_examples %}
+Q: {{ example.question }}
+SQL: {{ example.sql }}
+{%- endfor %}
+
+{%- endif -%}
+## Current Question
+
+{{ question }}
+
+Respond with ONLY the SQL query.

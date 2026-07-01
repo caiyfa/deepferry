@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 from deepferry.config import SourceConfig
 from deepferry.core.errors import DataSourceError

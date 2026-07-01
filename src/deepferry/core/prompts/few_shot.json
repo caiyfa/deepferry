@@ -1,0 +1,30 @@
+[
+  {
+    "question": "Show me all rows from the customers table",
+    "sql": "SELECT * FROM customers LIMIT 100"
+  },
+  {
+    "question": "Get all orders with customer names by joining main.customers and reports.orders",
+    "sql": "SELECT c.name, c.email, o.order_date, o.total FROM main.customers c JOIN reports.orders o ON c.id = o.customer_id ORDER BY o.order_date DESC LIMIT 50"
+  },
+  {
+    "question": "How many orders were placed per customer?",
+    "sql": "SELECT customer_id, COUNT(*) AS order_count FROM orders GROUP BY customer_id ORDER BY order_count DESC LIMIT 100"
+  },
+  {
+    "question": "Find all orders from the last 30 days",
+    "sql": "SELECT * FROM orders WHERE order_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) ORDER BY order_date DESC LIMIT 100"
+  },
+  {
+    "question": "Show the most recent 10 transactions",
+    "sql": "SELECT * FROM transactions ORDER BY created_at DESC LIMIT 10"
+  },
+  {
+    "question": "Get total revenue per product category",
+    "sql": "SELECT category, SUM(amount) AS total_revenue FROM orders GROUP BY category ORDER BY total_revenue DESC LIMIT 50"
+  },
+  {
+    "question": "List customers who have never placed an order",
+    "sql": "SELECT c.id, c.name FROM customers c LEFT JOIN orders o ON c.id = o.customer_id WHERE o.id IS NULL LIMIT 100"
+  }
+]

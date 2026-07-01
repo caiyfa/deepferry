@@ -27,6 +27,16 @@ database = "${POSTGRES_DATABASE:deepferry}"
 user = "${POSTGRES_USER:postgres}"
 password = "${POSTGRES_PASSWORD:testpass}"
 
+# ── LLM 集成（可选，/api/explore 需要此配置）────────────────────────────
+# [llm]
+# provider = "deepseek"
+# api_key = "${DEEPFERRY_LLM_API_KEY}"
+# model = "deepseek-chat"
+# base_url = "https://api.deepseek.com/v1"
+# max_tokens = 2000
+# temperature = 0.1
+# timeout = 15
+
 # ── HTTP API 数据源示例 ────────────────────────────────────────────────
 # [[sources]]
 # id = "json-api"

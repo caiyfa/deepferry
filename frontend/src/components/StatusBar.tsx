@@ -1,54 +1,73 @@
-import { useSidecarHealth } from "@/hooks/useSidecarHealth";
-import { useQuery } from "@/context/QueryContext";
+import { useEffect, useState } from "react";
+import { useShellStore } from "@/store/shell";
+import { api } from "@/api/client";
+import type { SourceSummary } from "@/api/types";
+
+type DotClass = "df-dot--ok" | "df-dot--err" | "df-dot--warn";
+
+function healthToDot(health: SourceSummary["health"]): DotClass {
+  switch (health) {
+    case "healthy":
+      return "df-dot--ok";
+    case "unhealthy":
+      return "df-dot--err";
+    default:
+      return "df-dot--warn";
+  }
+}
 
 export function StatusBar() {
-  const health = useSidecarHealth();
-  const { sourceId, result, loading } = useQuery();
+  const selectedSources = useShellStore((s) => s.selectedSources);
+  const [sources, setSources] = useState<SourceSummary[]>([]);
 
-  const dotClass =
-    health.state === "ok"
-      ? "df-dot--ok"
-      : health.state === "down"
-        ? "df-dot--err"
-        : "df-dot--idle";
-
-  const label =
-    health.state === "ok"
-      ? "sidecar online"
-      : health.state === "down"
-        ? "sidecar offline"
-        : "checking…";
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listSources()
+      .then((all) => {
+        if (cancelled) return;
+        const selected = new Set(selectedSources);
+        setSources(all.filter((s) => selected.has(s.id)));
+      })
+      .catch(() => {
+        if (!cancelled) setSources([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSources]);
 
   return (
     <footer className="df-statusbar" role="contentinfo">
-      <div className="df-statusbar__item">
-        <span className={`df-dot ${dotClass}`} />
-        <span>{label}</span>
-      </div>
-
-      <div className="df-statusbar__item">
-        <span className="df-subtle">src:</span>
-        <span>{sourceId || "—"}</span>
-      </div>
+      {sources.length === 0 ? (
+        <div className="df-statusbar__item">
+          <span className="df-dot df-dot--idle" />
+          <span className="df-subtle">no sources selected</span>
+        </div>
+      ) : (
+        sources.map((source) => (
+          <div className="df-statusbar__item" key={source.id}>
+            <span className={`df-dot ${healthToDot(source.health)}`} />
+            <span>{source.name}</span>
+          </div>
+        ))
+      )}
 
       <div className="df-statusbar__spacer" />
 
-      {loading ? (
-        <div className="df-statusbar__item">
-          <span className="df-dot df-dot--warn" />
-          <span>executing…</span>
-        </div>
-      ) : null}
+      <div className="df-statusbar__item">
+        <span className="df-subtle">agents:</span>
+        <span>0 agents</span>
+      </div>
 
-      {result ? (
-        <div className="df-statusbar__item">
-          <span className="df-subtle">rows:</span>
-          <span>{result.row_count.toLocaleString()}</span>
-          <span className="df-subtle">·</span>
-          <span className="df-subtle">ms:</span>
-          <span>{result.execution_time_ms.toFixed(1)}</span>
-        </div>
-      ) : null}
+      <div className="df-statusbar__item">
+        <span className="df-subtle">last activity:</span>
+        <span>—</span>
+      </div>
+
+      <div className="df-statusbar__item">
+        <span className="df-subtle">v0.1.0 · m3</span>
+      </div>
     </footer>
   );
 }

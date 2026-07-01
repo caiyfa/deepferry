@@ -18,6 +18,7 @@ import aiosqlite
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from deepferry.config import LLMConfig
 from deepferry.core.errors import SourceNotFoundError
 from deepferry.core.trace import TraceSink
 from deepferry.datasources.registry import SourceRegistry
@@ -37,6 +38,13 @@ _config_path: Path | None = None
 Used by the config CRUD endpoints (``POST /api/config/sources`` etc.) to write
 mutations back to disk so they survive restarts and are visible to any other
 process reading the same file.
+"""
+
+_llm_config: LLMConfig | None = None
+"""Module-level LLM configuration (optional), set by ``init_app()``.
+
+Used by the Explore API endpoints (``POST /api/explore`` etc.) to instantiate
+the LLM client for natural-language-to-SQL generation.
 """
 
 
@@ -84,6 +92,15 @@ def get_config_path() -> Path:
             "config CRUD endpoints."
         )
     return _config_path
+
+
+def get_llm_config() -> LLMConfig | None:
+    """FastAPI dependency returning the optional ``LLMConfig``.
+
+    Returns ``None`` when no ``[llm]`` section was present in ``config.toml``.
+    Explore API endpoints return 503 in that case.
+    """
+    return _llm_config
 
 
 @asynccontextmanager
@@ -163,6 +180,7 @@ def init_app(
     db: aiosqlite.Connection | None = None,
     trace_sink: TraceSink | None = None,
     config_path: Path | None = None,
+    llm_config: LLMConfig | None = None,
 ) -> FastAPI:
     """Initialise and return the FastAPI application with the given registry.
 
@@ -193,17 +211,19 @@ def init_app(
     FastAPI
         The configured application instance.
     """
-    global _registry, _db, _trace_sink, _config_path
+    global _registry, _db, _trace_sink, _config_path, _llm_config
     _registry = registry
     _db = db
     _trace_sink = trace_sink
     _config_path = config_path
+    _llm_config = llm_config
 
     # Imported lazily here (not at module top-level) to avoid a circular
     # import: every route module imports ``get_registry`` / ``get_db`` /
     # ``get_trace_sink`` from this module.
     from deepferry.web.routes.config import router as config_router
     from deepferry.web.routes.executions import router as executions_router
+    from deepferry.web.routes.explore import router as explore_router
     from deepferry.web.routes.history import router as history_router
     from deepferry.web.routes.query import router as query_router
     from deepferry.web.routes.schema import router as schema_router
@@ -213,5 +233,6 @@ def init_app(
     app.include_router(history_router)
     app.include_router(executions_router)
     app.include_router(config_router)
+    app.include_router(explore_router)
 
     return app

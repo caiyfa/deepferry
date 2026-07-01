@@ -21,11 +21,11 @@ import starlette.applications
 import starlette.requests
 import starlette.responses
 import starlette.routing
-from starlette.middleware.cors import CORSMiddleware
 from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from starlette.middleware.cors import CORSMiddleware
 
 from deepferry.core.db import get_db
 from deepferry.core.errors import DeepFerryError
@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
     import aiosqlite
 
+    from deepferry.config import LLMConfig
     from deepferry.datasources.registry import SourceRegistry
     from deepferry.engine.duckdb import DuckDBEngine
 
@@ -467,6 +468,7 @@ async def run_http_server(
     db_path: str | None = None,
     trace_sink: TraceSink | None = None,
     config_path: Path | None = None,
+    llm_config: LLMConfig | None = None,
 ) -> None:
     """Start the MCP server over Streamable HTTP.
 
@@ -534,7 +536,11 @@ async def run_http_server(
     from deepferry.web.app import init_app
 
     config_app = init_app(
-        registry, db=db, trace_sink=trace_sink, config_path=config_path
+        registry,
+        db=db,
+        trace_sink=trace_sink,
+        config_path=config_path,
+        llm_config=llm_config,
     )
 
     starlette_app = starlette.applications.Starlette(

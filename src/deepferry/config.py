@@ -129,6 +129,23 @@ class SourceConfig:
 
 
 @dataclass
+class LLMConfig:
+    """LLM service configuration parsed from the ``[llm]`` section.
+
+    All string values are ``${ENV_VAR}``-expanded before reaching this dataclass.
+    The ``api_key`` **must** use env-var injection — never hardcoded in TOML.
+    """
+
+    provider: str = "deepseek"
+    api_key: str = ""
+    model: str = "deepseek-chat"
+    base_url: str = "https://api.deepseek.com/v1"
+    max_tokens: int = 2000
+    temperature: float = 0.1
+    timeout: int = 15
+
+
+@dataclass
 class AppConfig:
     """The fully-resolved application configuration.
 
@@ -138,6 +155,7 @@ class AppConfig:
 
     sources: list[SourceConfig]
     server: ServerConfig = field(default_factory=ServerConfig)
+    llm: LLMConfig | None = None
 
 
 # ── Required fields per source type ───────────────────────────────────────
@@ -231,6 +249,20 @@ def load_config(path: str | Path) -> AppConfig:
         log_level=str(server_raw.get("log_level", "info")),
     )
 
+    # ── Parse [llm] section (optional) ─────────────────────────────────────
+    llm_raw = raw.get("llm", {})
+    llm: LLMConfig | None = None
+    if llm_raw:
+        llm = LLMConfig(
+            provider=str(llm_raw.get("provider", "deepseek")),
+            api_key=str(llm_raw.get("api_key", "")),
+            model=str(llm_raw.get("model", "deepseek-chat")),
+            base_url=str(llm_raw.get("base_url", "https://api.deepseek.com/v1")),
+            max_tokens=int(llm_raw.get("max_tokens", 2000)),
+            temperature=float(llm_raw.get("temperature", 0.1)),
+            timeout=int(llm_raw.get("timeout", 15)),
+        )
+
     # ── Parse [[sources]] blocks ──────────────────────────────────────────
     sources_raw: list[dict[str, Any]] = raw.get("sources", [])
     if not isinstance(sources_raw, list):
@@ -277,7 +309,7 @@ def load_config(path: str | Path) -> AppConfig:
         _validate_source(sc)
         sources.append(sc)
 
-    return AppConfig(sources=sources, server=server)
+    return AppConfig(sources=sources, server=server, llm=llm)
 
 
 # ── TOML write helpers ───────────────────────────────────────────────────

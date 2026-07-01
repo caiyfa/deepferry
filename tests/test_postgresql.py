@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import asyncpg
 import pytest
 
+from deepferry.config import SourceConfig
 from deepferry.core.errors import DataSourceError
 from deepferry.core.models import (
     ColumnMeta,
@@ -18,7 +19,6 @@ from deepferry.core.models import (
     Schema,
     StructuredResult,
 )
-from deepferry.config import SourceConfig
 from deepferry.datasources.postgresql import PostgreSQLDataSource
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

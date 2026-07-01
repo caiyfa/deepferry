@@ -77,3 +77,27 @@ class ValidationError(DeepFerryError):
 
     code = "VALIDATION_ERROR"
     status_code = 400
+
+
+class LLMUnavailableError(DeepFerryError):
+    """The LLM service is unreachable or returned an unexpected error.
+
+    Explore mode should fall back to schema browsing when this error occurs.
+    """
+
+    code = "LLM_UNAVAILABLE"
+    status_code = 503
+
+
+class LLMInvalidSQLError(DeepFerryError):
+    """The LLM generated SQL that failed validation or could not be parsed."""
+
+    code = "LLM_INVALID_SQL"
+    status_code = 422
+
+
+class LLMTimeoutError(DeepFerryError):
+    """The LLM call exceeded the configured timeout."""
+
+    code = "LLM_TIMEOUT"
+    status_code = 504

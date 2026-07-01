@@ -1,0 +1,24 @@
+{%- if sources -%}
+The following data sources are available:
+
+{%- for source in sources %}
+
+### Source: {{ source.source_id }}
+Type: {{ source.type }}
+Tables:
+{%- for table in source.tables %}
+  - {{ source.source_id }}.{{ table.name }} ({{ table.row_count | default("unknown") }} rows)
+    Columns:
+{%- for col in table.columns %}
+      {{ col.name }}: {{ col.type }}
+{%- endfor %}
+{%- endfor %}
+{%- endfor %}
+
+Key notes:
+- Use `source_id.table_name` notation when joining across different sources.
+- LIMIT is required on every query.
+- Column types indicate the expected data format — respect them in comparisons and expressions.
+{%- else %}
+No schema information is available. You may only answer questions that do not require schema context.
+{%- endif %}

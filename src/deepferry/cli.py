@@ -86,6 +86,7 @@ async def _run_mcp_server(args: argparse.Namespace) -> None:
                 port=args.port,
                 engine=engine,
                 config_path=args.config,
+                llm_config=config.llm,
             )
         else:
             from deepferry.mcp_server.server import run_stdio_server

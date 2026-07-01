@@ -1,18 +1,20 @@
 """Unit tests for query safeguards (read-only enforcement).
 
-Covers MySQL and PostgreSQL datasource read-only checks: allowed
-statements (SELECT, SHOW, DESCRIBE, EXPLAIN, WITH) and rejected
-write operations (INSERT, UPDATE, DELETE, DROP, ALTER, CREATE).
+Covers both the datasource-level ``_scan_sql`` static methods (dangerous
+keyword detection) and the shared ``llm_guard.scan_sql`` function (full
+validation including empty/prefix checks).
 """
 
 from __future__ import annotations
 
 import pytest
 
+from deepferry.core.errors import DataSourceError
+from deepferry.core.llm_guard import scan_sql
 from deepferry.datasources.mysql import MySQLDataSource
 from deepferry.datasources.postgresql import PostgreSQLDataSource
 
-# ── _is_read_only tests ───────────────────────────────────────────────────
+# ── Datasource-level _scan_sql tests ────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -32,7 +34,8 @@ from deepferry.datasources.postgresql import PostgreSQLDataSource
     ],
 )
 def test_read_only_statements_allowed_mysql(statement: str) -> None:
-    assert MySQLDataSource._is_read_only(statement) is True
+    """Datasource-level _scan_sql should not raise for safe read-only statements."""
+    MySQLDataSource._scan_sql(statement)
 
 
 @pytest.mark.parametrize(
@@ -49,7 +52,10 @@ def test_read_only_statements_allowed_mysql(statement: str) -> None:
     ],
 )
 def test_write_statements_rejected_mysql(statement: str) -> None:
-    assert MySQLDataSource._is_read_only(statement) is False
+    """Datasource-level _scan_sql must raise WRITE_BLOCKED for dangerous keywords."""
+    with pytest.raises(DataSourceError) as exc_info:
+        MySQLDataSource._scan_sql(statement)
+    assert exc_info.value.code == "WRITE_BLOCKED"
 
 
 @pytest.mark.parametrize(
@@ -66,7 +72,7 @@ def test_write_statements_rejected_mysql(statement: str) -> None:
     ],
 )
 def test_read_only_statements_allowed_postgresql(statement: str) -> None:
-    assert PostgreSQLDataSource._is_read_only(statement) is True
+    PostgreSQLDataSource._scan_sql(statement)
 
 
 @pytest.mark.parametrize(
@@ -84,7 +90,9 @@ def test_read_only_statements_allowed_postgresql(statement: str) -> None:
     ],
 )
 def test_write_statements_rejected_postgresql(statement: str) -> None:
-    assert PostgreSQLDataSource._is_read_only(statement) is False
+    with pytest.raises(DataSourceError) as exc_info:
+        PostgreSQLDataSource._scan_sql(statement)
+    assert exc_info.value.code == "WRITE_BLOCKED"
 
 
 @pytest.mark.parametrize(
@@ -96,7 +104,7 @@ def test_write_statements_rejected_postgresql(statement: str) -> None:
     ],
 )
 def test_with_cte_allowed_mysql(statement: str) -> None:
-    assert MySQLDataSource._is_read_only(statement) is True
+    MySQLDataSource._scan_sql(statement)
 
 
 @pytest.mark.parametrize(
@@ -108,10 +116,13 @@ def test_with_cte_allowed_mysql(statement: str) -> None:
     ],
 )
 def test_with_cte_allowed_postgresql(statement: str) -> None:
-    assert PostgreSQLDataSource._is_read_only(statement) is True
+    PostgreSQLDataSource._scan_sql(statement)
 
 
-# ── Edge cases ────────────────────────────────────────────────────────────
+# ── Shared llm_guard.scan_sql edge case tests ───────────────────────────
+# The datasource-level _scan_sql only checks dangerous keywords.  The shared
+# llm_guard.scan_sql additionally validates that SQL starts with an allowed
+# prefix and is not empty.  Edge cases below use the shared function.
 
 
 @pytest.mark.parametrize(
@@ -122,8 +133,11 @@ def test_with_cte_allowed_postgresql(statement: str) -> None:
         "\n\t",
     ],
 )
-def test_empty_statements_mysql(statement: str) -> None:
-    assert MySQLDataSource._is_read_only(statement) is False
+def test_empty_statements_rejected(statement: str) -> None:
+    """Empty / whitespace-only SQL must raise INVALID_SQL."""
+    with pytest.raises(DataSourceError) as exc_info:
+        scan_sql(statement)
+    assert exc_info.value.code == "INVALID_SQL"
 
 
 @pytest.mark.parametrize(
@@ -134,20 +148,11 @@ def test_empty_statements_mysql(statement: str) -> None:
         "COMMIT",
         "ROLLBACK",
         "USE testdb",
-    ],
-)
-def test_non_read_statement_classification_mysql(statement: str) -> None:
-    assert MySQLDataSource._is_read_only(statement) is False
-
-
-@pytest.mark.parametrize(
-    "statement",
-    [
         "SET search_path TO public",
-        "BEGIN",
-        "COMMIT",
-        "ROLLBACK",
     ],
 )
-def test_non_read_statement_classification_postgresql(statement: str) -> None:
-    assert PostgreSQLDataSource._is_read_only(statement) is False
+def test_non_read_statement_classification(statement: str) -> None:
+    """Statements not starting with an allowed prefix must raise INVALID_SQL."""
+    with pytest.raises(DataSourceError) as exc_info:
+        scan_sql(statement)
+    assert exc_info.value.code == "INVALID_SQL"

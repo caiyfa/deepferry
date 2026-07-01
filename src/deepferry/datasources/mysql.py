@@ -256,7 +256,7 @@ class MySQLDataSource(DataSource):
                         columns = []
 
                     dict_rows: list[dict[str, Any]] = [
-                        dict(zip(col_names, row)) for row in rows
+                        dict(zip(col_names, row, strict=False)) for row in rows
                     ]
 
         except TimeoutError:
@@ -311,21 +311,20 @@ class MySQLDataSource(DataSource):
         self._require_connected()
 
         try:
-            async with self._pool.acquire() as conn:  # type: ignore[union-attr]
-                async with conn.cursor() as cursor:
-                    await cursor.execute(
-                        "SELECT TABLE_NAME, TABLE_TYPE "
-                        "FROM information_schema.TABLES "
-                        "WHERE TABLE_SCHEMA = DATABASE()"
+            async with self._pool.acquire() as conn, conn.cursor() as cursor:  # type: ignore[union-attr]
+                await cursor.execute(
+                    "SELECT TABLE_NAME, TABLE_TYPE "
+                    "FROM information_schema.TABLES "
+                    "WHERE TABLE_SCHEMA = DATABASE()"
+                )
+                rows = await cursor.fetchmany(size=1000)
+                return [
+                    Resource(
+                        name=row[0],
+                        type="table" if row[1] == "BASE TABLE" else "view",
                     )
-                    rows = await cursor.fetchmany(size=1000)
-                    return [
-                        Resource(
-                            name=row[0],
-                            type="table" if row[1] == "BASE TABLE" else "view",
-                        )
-                        for row in rows
-                    ]
+                    for row in rows
+                ]
         except _OperationalError as exc:
             raise DataSourceError(
                 code="CONNECTION_FAILED",
@@ -357,39 +356,38 @@ class MySQLDataSource(DataSource):
         self._require_connected()
 
         try:
-            async with self._pool.acquire() as conn:  # type: ignore[union-attr]
-                async with conn.cursor() as cursor:
-                    if resource is not None:
-                        await cursor.execute(
-                            "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE "
-                            "FROM information_schema.COLUMNS "
-                            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
-                            (resource,),
-                        )
-                    else:
-                        await cursor.execute(
-                            "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE "
-                            "FROM information_schema.COLUMNS "
-                            "WHERE TABLE_SCHEMA = DATABASE()"
-                        )
-                    rows = await cursor.fetchmany(size=1000)
+            async with self._pool.acquire() as conn, conn.cursor() as cursor:  # type: ignore[union-attr]
+                if resource is not None:
+                    await cursor.execute(
+                        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE "
+                        "FROM information_schema.COLUMNS "
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
+                        (resource,),
+                    )
+                else:
+                    await cursor.execute(
+                        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE "
+                        "FROM information_schema.COLUMNS "
+                        "WHERE TABLE_SCHEMA = DATABASE()"
+                    )
+                rows = await cursor.fetchmany(size=1000)
 
-                    # Group columns by table name.
-                    tables: dict[str, list[ColumnMeta]] = {}
-                    for row in rows:
-                        table_name = str(row[0])
-                        col_meta = ColumnMeta(
-                            name=str(row[1]),
-                            type=str(row[2]),
-                            nullable=row[3] == "YES",
-                        )
-                        tables.setdefault(table_name, []).append(col_meta)
+                # Group columns by table name.
+                tables: dict[str, list[ColumnMeta]] = {}
+                for row in rows:
+                    table_name = str(row[0])
+                    col_meta = ColumnMeta(
+                        name=str(row[1]),
+                        type=str(row[2]),
+                        nullable=row[3] == "YES",
+                    )
+                    tables.setdefault(table_name, []).append(col_meta)
 
-                    resources = [
-                        ResourceMeta(name=name, columns=cols)
-                        for name, cols in tables.items()
-                    ]
-                    return Schema(resources=resources)
+                resources = [
+                    ResourceMeta(name=name, columns=cols)
+                    for name, cols in tables.items()
+                ]
+                return Schema(resources=resources)
 
         except _OperationalError as exc:
             raise DataSourceError(
