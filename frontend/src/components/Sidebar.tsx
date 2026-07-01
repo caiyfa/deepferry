@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useShellStore } from "@/store/shell";
 import { api } from "@/api/client";
+import { datasetsApi, type Dataset } from "@/api/datasets";
 import type { AppMode } from "@/store/shell";
 import type { SourceSummary, SourceHealth } from "@/api/types";
 
@@ -40,9 +42,13 @@ export function Sidebar() {
   const switchMode = useShellStore((s) => s.switchMode);
   const toggleSource = useShellStore((s) => s.toggleSource);
   const setSidebarCollapsed = useShellStore((s) => s.setSidebarCollapsed);
+  const theme = useShellStore((s) => s.theme);
+  const toggleTheme = useShellStore((s) => s.toggleTheme);
 
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
@@ -62,6 +68,14 @@ export function Sidebar() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    datasetsApi.list().then((data) => {
+      if (!cancelled) setDatasets(data);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -214,6 +228,46 @@ export function Sidebar() {
         </div>
       )}
 
+      {datasets.length > 0 && (
+        <nav className="df-nav" aria-label="Datasets">
+          <div className="df-nav__label">{collapsed ? "" : "Datasets"}</div>
+          {datasets.map((ds) => (
+            <button
+              key={ds.id}
+              type="button"
+              className="df-nav__link"
+              onClick={() => navigate(`/datasets/${ds.id}`)}
+              title={ds.name}
+              style={{
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--df-space-2)",
+              }}
+            >
+              <span className="df-nav__icon">⊞</span>
+              {!collapsed && (
+                <>
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {ds.name}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "var(--df-font-mono)",
+                      fontSize: "var(--df-fs-xs)",
+                      color: "var(--df-fg-subtle)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    v{ds.latest_version}
+                  </span>
+                </>
+              )}
+            </button>
+          ))}
+        </nav>
+      )}
+
       <div className="df-sidebar__footer">
         {collapsed ? (
           <span title="v0.1.0 · m3 · settings">v0.1</span>
@@ -231,6 +285,23 @@ export function Sidebar() {
             >
               settings
             </a>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              style={{
+                background: "none",
+                border: "1px solid var(--df-border)",
+                borderRadius: "var(--df-radius-sm)",
+                padding: "2px var(--df-space-2)",
+                cursor: "pointer",
+                color: "var(--df-fg-subtle)",
+                fontSize: "var(--df-fs-xs)",
+                marginLeft: "var(--df-space-2)",
+              }}
+            >
+              {theme === "dark" ? "☀" : "☾"}
+            </button>
           </>
         )}
       </div>

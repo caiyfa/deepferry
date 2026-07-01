@@ -7,6 +7,7 @@ interface ShellStore {
   selectedSources: string[];
   sidebarCollapsed: boolean;
   commandPaletteOpen: boolean;
+  theme: "dark" | "light";
 
   switchMode: (mode: AppMode) => void;
   setSelectedSources: (ids: string[]) => void;
@@ -15,6 +16,8 @@ interface ShellStore {
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleCommandPalette: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
+  toggleTheme: () => void;
+  setTheme: (theme: "dark" | "light") => void;
 }
 
 export const useShellStore = create<ShellStore>()((set) => ({
@@ -22,6 +25,7 @@ export const useShellStore = create<ShellStore>()((set) => ({
   selectedSources: [],
   sidebarCollapsed: false,
   commandPaletteOpen: false,
+  theme: "dark",
 
   switchMode: (mode) => set({ activeMode: mode }),
   setSelectedSources: (ids) => set({ selectedSources: ids }),
@@ -38,4 +42,6 @@ export const useShellStore = create<ShellStore>()((set) => ({
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   toggleCommandPalette: () => set((state) => ({ commandPaletteOpen: !state.commandPaletteOpen })),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+  toggleTheme: () => set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
+  setTheme: (theme) => set({ theme }),
 }));

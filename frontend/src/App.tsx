@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
-import { HashRouter, Route, Routes } from "react-router-dom";
+import { HashRouter, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { QueryProvider } from "@/context/QueryContext";
 import { Sidebar } from "@/components/Sidebar";
 import { StatusBar } from "@/components/StatusBar";
@@ -26,6 +26,10 @@ const LegacyHistoryPage = lazy(() =>
 );
 const LegacyExecutionPage = lazy(() =>
   import("@/pages/ExecutionPage").then((m) => ({ default: m.ExecutionPage })),
+);
+
+const DatasetDetailPage = lazy(() =>
+  import("@/pages/DatasetDetailPage").then((m) => ({ default: m.DatasetDetailPage })),
 );
 
 function PageFallback() {
@@ -55,10 +59,25 @@ function ModeView() {
   );
 }
 
+function DatasetDetailRoute() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  return (
+    <Suspense fallback={<PageFallback />}>
+      <DatasetDetailPage datasetId={id ?? ""} onBack={() => navigate("/")} />
+    </Suspense>
+  );
+}
+
 export default function App() {
   const commandPaletteOpen = useShellStore((s) => s.commandPaletteOpen);
   const setCommandPaletteOpen = useShellStore((s) => s.setCommandPaletteOpen);
   const switchMode = useShellStore((s) => s.switchMode);
+  const theme = useShellStore((s) => s.theme);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -123,6 +142,11 @@ export default function App() {
                     <LegacyExecutionPage />
                   </Suspense>
                 }
+              />
+
+              <Route
+                path="/datasets/:id"
+                element={<DatasetDetailRoute />}
               />
 
               {/* Fallback */}

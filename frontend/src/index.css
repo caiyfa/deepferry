@@ -102,6 +102,62 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
+   Light theme — Catppuccin Latte
+   Activated via [data-theme="light"] on <html>. Only color tokens are
+   overridden; spacing, typography, radii, shadows are inherited from :root.
+   ───────────────────────────────────────────────────────────────────────── */
+
+[data-theme="light"] {
+  /* ── Color: base surfaces ── */
+  --df-crust: #dce0e8;
+  --df-mantle: #e6e9ef;
+  --df-base: #eff1f5;
+  --df-surface0: #ccd0da;
+  --df-surface1: #bcc0cc;
+  --df-surface2: #acb0be;
+
+  /* ── Color: text ── */
+  --df-text: #4c4f69;
+  --df-subtext1: #5c5f77;
+  --df-subtext0: #6c6f85;
+  --df-overlay0: #7c7f93;
+  --df-overlay1: #8c8fa1;
+  --df-overlay2: #9ca0b0;
+
+  /* ── Color: accents ── */
+  --df-blue: #1e66f5;
+  --df-lavender: #7287fd;
+  --df-sapphire: #209fb5;
+  --df-sky: #04a5e5;
+  --df-teal: #179299;
+  --df-green: #40a02b;
+  --df-yellow: #df8e1d;
+  --df-peach: #fe640b;
+  --df-maroon: #e64553;
+  --df-red: #d20f39;
+  --df-mauve: #8839ef;
+  --df-pink: #ea76cb;
+  --df-flamingo: #dd7878;
+  --df-rosewater: #dc8a78;
+
+  /* ── Semantic mapping ── */
+  --df-fg: var(--df-text);
+  --df-fg-muted: var(--df-subtext0);
+  --df-fg-subtle: var(--df-overlay1);
+  --df-border: rgba(76, 79, 105, 0.12);
+  --df-border-strong: rgba(76, 79, 105, 0.24);
+  --df-accent: var(--df-blue);
+  --df-accent-soft: rgba(30, 102, 245, 0.10);
+  --df-accent-line: rgba(30, 102, 245, 0.35);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
    Reset & base
    ───────────────────────────────────────────────────────────────────────── */
 
@@ -755,6 +811,7 @@ a:hover {
 }
 
 .df-workspace__result {
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
