@@ -96,48 +96,48 @@ DuckDB embedded / openai SDK >= 2.43 / Jinja2
 
 ### 3.1 Storage
 
-- [ ] 3.1.1 `src/deepferry/core/dataset_storage.py`：write_parquet / write_json / write_arrow
+- [x] 3.1.1 `src/deepferry/core/dataset_storage.py`：write_parquet / write_json / write_arrow
   - 验证: Parquet → `pd.read_parquet()` 可读
-- [ ] 3.1.2 目录结构：`{data_dir}/datasets/{id}/v{n}/` + metadata.yaml
+- [x] 3.1.2 目录结构：`{data_dir}/datasets/{id}/v{n}/` + metadata.yaml
 
 ### 3.2 Dataset Manager
 
-- [ ] 3.2.1 `src/deepferry/core/dataset.py` — `DatasetManager`：create / get / list / delete
+- [x] 3.2.1 `src/deepferry/core/dataset.py` — `DatasetManager`：create / get / list / delete
   - 单元测试: create → list → get → delete
 
 ### 3.3 Snapshot
 
-- [ ] 3.3.1 `src/deepferry/core/snapshot.py`：create_snapshot + SHA256 fingerprint + version chain
-- [ ] 3.3.2 增量刷新：`WHERE updated_at > last_snapshot_ts`
+- [x] 3.3.1 `src/deepferry/core/snapshot.py`：create_snapshot + SHA256 fingerprint + version chain
+- [x] 3.3.2 增量刷新：`WHERE updated_at > last_snapshot_ts`
 
 ### 3.4 Version + Diff
 
-- [ ] 3.4.1 `src/deepferry/core/versioning.py`：v1→v2→v3 自动递增
-- [ ] 3.5.1 `src/deepferry/core/diff.py`：DuckDB EXCEPT/INTERSECT → additions/deletions/modifications
+- [x] 3.4.1 `src/deepferry/core/versioning.py`：v1→v2→v3 自动递增
+- [x] 3.5.1 `src/deepferry/core/diff.py`：DuckDB EXCEPT/INTERSECT → additions/deletions/modifications
 
 ### 3.6 DuckDB Upgrade
 
-- [ ] 3.6.1 `duckdb.py`：`read_json/read_parquet` 替代 `_build_insert_values`
+- [x] 3.6.1 `duckdb.py`：`read_json/read_parquet` 替代 `_build_insert_values`
   - 现有 `test_duckdb.py` 仍通过
-- [ ] 3.6.2 `StructuredResult.source_breakdown` 新字段
+- [x] 3.6.2 `StructuredResult.source_breakdown` 新字段
 
 ### 3.7 Dataset API
 
-- [ ] 3.7.1 `routes/datasets.py`：7 个端点完整实现
-- [ ] 3.7.2 导出：Parquet/CSV/JSON/Arrow 四种格式
-- [ ] 3.7.3 `tests/test_dataset.py`
+- [x] 3.7.1 `routes/datasets.py`：7 个端点完整实现
+- [x] 3.7.2 导出：Parquet/CSV/JSON/Arrow 四种格式
+- [x] 3.7.3 `tests/test_dataset.py`
 
 ---
 
 ### 🛑 STOP GATE — P3 验收
 
-- [ ] 创建 → v1/ 目录含 parquet + json
-- [ ] 刷新 → v2 创建 + 版本链更新
-- [ ] diff → 返回正确差异
-- [ ] 导出 → Parquet 可被外部工具读取
-- [ ] 删 `_cache/` → 查询仍正常
-- [ ] `mypy src/` + `pytest tests/test_dataset.py` 通过
-- [ ] 现有 `test_duckdb.py` 全部通过
+- [x] 创建 → v1/ 目录含 parquet + json
+- [x] 刷新 → v2 创建 + 版本链更新
+- [x] diff → 返回正确差异
+- [x] 导出 → Parquet 可被外部工具读取
+- [x] 删 `_cache/` → 查询仍正常
+- [x] `mypy src/` + `pytest tests/test_dataset.py` 通过
+- [x] 现有 `test_duckdb.py` 全部通过
 
 ---
 
@@ -145,35 +145,35 @@ DuckDB embedded / openai SDK >= 2.43 / Jinja2
 
 ### 4.1 WebSocket
 
-- [ ] 4.1.1 `src/deepferry/web/ws.py`：`/ws/agents` + heartbeat 30s + 断线处理
+- [x] 4.1.1 `src/deepferry/web/ws.py`：`/ws/agents` + heartbeat 30s + 断线处理
   - 验证: 两客户端同时连接 → 都收到事件
 
 ### 4.2 Agent API
 
-- [ ] 4.2.1 `routes/agents.py`：sessions 列表/详情 + stats 聚合
+- [x] 4.2.1 `routes/agents.py`：sessions 列表/详情 + stats 聚合
   - 从 trace DB 读取
   - 验证: curl → JSON 正确
 
 ### 4.3 Context + Diagnosis
 
-- [ ] 4.3.1 MCP handler 提取 `_conversation_id` → trace metadata
-- [ ] 4.4.1 `src/deepferry/core/diagnostics.py`：4 条规则引擎 → diagnosis + suggestion
+- [x] 4.3.1 MCP handler 提取 `_conversation_id` → trace metadata
+- [x] 4.4.1 `src/deepferry/core/diagnostics.py`：4 条规则引擎 → diagnosis + suggestion
   - 验证: 单元测试覆盖所有 error pattern
 
 ### 4.5 Trace Enhancement
 
-- [ ] 4.5.1 `Execution` 新增 `agent_name`, `conversation_id`, `source_breakdown_json`
+- [x] 4.5.1 `Execution` 新增 `agent_name`, `conversation_id`, `source_breakdown_json`
   - 验证: 现有 `test_trace.py` 仍通过
 
 ---
 
 ### 🛑 STOP GATE — P4 验收
 
-- [ ] WS `/ws/agents` → 事件推送
-- [ ] sessions API → 返回历史
-- [ ] stats API → 返回聚合
-- [ ] diagnose() → 4 种错误全部覆盖
-- [ ] `mypy src/` + `pytest tests/test_trace.py` 通过
+- [x] WS `/ws/agents` → 事件推送
+- [x] sessions API → 返回历史
+- [x] stats API → 返回聚合
+- [x] diagnose() → 4 种错误全部覆盖
+- [x] `mypy src/` + `pytest tests/test_trace.py` 通过
 
 ---
 
@@ -181,21 +181,21 @@ DuckDB embedded / openai SDK >= 2.43 / Jinja2
 
 ### 5.1-5.4
 
-- [ ] 5.1.1 DuckDB 返回 `source_breakdown` 数据
-- [ ] 5.2.1 `GET /api/schema/relationships` → 跨源 JOIN 检测
-- [ ] 5.3.1 SQLite `saved_queries` 表 + CRUD API (`routes/saved.py`)
-- [ ] 5.3.3 参数化查询：`{{param}}` 模板解析
-- [ ] 5.4.1 `POST /api/query/analyze` → LLM 分析 SQL（复用 llm.py）
+- [x] 5.1.1 DuckDB 返回 `source_breakdown` 数据
+- [x] 5.2.1 `GET /api/schema/relationships` → 跨源 JOIN 检测
+- [x] 5.3.1 SQLite `saved_queries` 表 + CRUD API (`routes/saved.py`)
+- [x] 5.3.3 参数化查询：`{{param}}` 模板解析
+- [x] 5.4.1 `POST /api/query/analyze` → LLM 分析 SQL（复用 llm.py）
 
 ---
 
 ### 🛑 STOP GATE — P5 验收
 
-- [ ] 跨源查询返回 `source_breakdown`
-- [ ] schema relationships 返回可 JOIN 字段
-- [ ] saved query CRUD 完整
-- [ ] SQL analysis 返回结构化建议
-- [ ] `mypy src/` 通过
+- [x] 跨源查询返回 `source_breakdown`
+- [x] schema relationships 返回可 JOIN 字段
+- [x] saved query CRUD 完整
+- [x] SQL analysis 返回结构化建议
+- [x] `mypy src/` 通过
 
 ---
 
